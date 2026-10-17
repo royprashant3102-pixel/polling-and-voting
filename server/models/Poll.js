@@ -9,13 +9,17 @@ const pollSchema = new mongoose.Schema(
     question: { type: String, required: true },
 
     // options is an array of plain strings — e.g. ["Red", "Blue", "Green"].
-    // A poll needs at least 2 options to mean anything; no upper limit —
-    // the creator can add as many as they want.
+    // A poll needs at least 2 non-blank options to mean anything; no upper
+    // limit — the creator can add as many as they want. We check for
+    // non-blank here too (not just length) because the client already
+    // trims/filters before sending, but the server should never assume
+    // that's the only caller — a direct API request could send
+    // ["A", "   "] and pass a plain length check.
     options: {
       type: [String],
       validate: {
-        validator: (arr) => arr.length >= 2,
-        message: 'A poll must have at least 2 options',
+        validator: (arr) => arr.filter((o) => o.trim() !== '').length >= 2,
+        message: 'A poll must have at least 2 non-blank options',
       },
     },
 

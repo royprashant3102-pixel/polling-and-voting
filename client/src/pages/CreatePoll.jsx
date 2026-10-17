@@ -31,10 +31,23 @@ export default function CreatePoll() {
   async function handleCreate(e) {
     e.preventDefault();
     setError('');
+
+    // `required` on an <input> blocks a truly empty value, but NOT a
+    // whitespace-only one ("   " counts as "filled" to the browser) — so
+    // without this check, a creator could submit a poll that silently
+    // drops to fewer than 2 real options after trimming, with no clear
+    // explanation of why the server rejected it (or didn't, if the count
+    // still happened to land at 2+ garbage entries).
+    const trimmedOptions = options.map((o) => o.trim()).filter((o) => o !== '');
+    if (trimmedOptions.length < 2) {
+      setError('Please fill in at least 2 options (blank or spaces-only options don’t count).');
+      return;
+    }
+
     try {
       const res = await api.post('/polls', {
         question,
-        options: options.filter((o) => o.trim() !== ''),
+        options: trimmedOptions,
         // <input type="datetime-local"> gives a bare string with no timezone
         // (e.g. "2026-10-25T14:30"), interpreted ambiguously if sent as-is.
         // Convert explicitly here, anchored to the browser's local time,
