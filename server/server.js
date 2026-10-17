@@ -10,9 +10,13 @@ const cors = require('cors');
 const app = express();
 
 // ---------- Global middleware ----------
-// cors() allows the React dev server (port 5173) to call this API (port 5001).
-// Without it, browsers block cross-origin requests (CORS policy).
-app.use(cors());
+// Without CORS, browsers block cross-origin requests by default.
+// We allow the local Vite dev server and the deployed Vercel client.
+app.use(
+  cors({
+    origin: ['http://localhost:5173', 'https://polling-and-voting-three.vercel.app'],
+  })
+);
 // express.json() parses incoming JSON request bodies into req.body.
 app.use(express.json());
 
