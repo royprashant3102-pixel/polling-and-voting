@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import Header from './Header';
 import Auth from './pages/Auth';
 import PollList from './pages/PollList';
+import CreatePoll from './pages/CreatePoll';
 import PollDetail from './pages/PollDetail';
 
 // Minimal route guard: no token in localStorage → bounce to /login.
@@ -19,11 +20,20 @@ export default function App() {
       <div className="page">
         <Routes>
           <Route path="/login" element={<Auth />} />
+          <Route path="/" element={<Navigate to="/polls" />} />
           <Route
-            path="/"
+            path="/polls"
             element={
               <RequireAuth>
                 <PollList />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/polls/new"
+            element={
+              <RequireAuth>
+                <CreatePoll />
               </RequireAuth>
             }
           />

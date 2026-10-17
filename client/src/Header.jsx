@@ -13,13 +13,13 @@ export default function Header() {
 
   return (
     <header className="site-header">
-      <Link to="/" className="logo" style={{ textDecoration: 'none', color: 'inherit' }}>
+      <Link to="/polls" className="logo" style={{ textDecoration: 'none', color: 'inherit' }}>
         PollBox
       </Link>
       {loggedIn && (
         <nav>
-          <Link to="/">Polls</Link>
-          <Link to="/">Create poll</Link>
+          <Link to="/polls">Polls</Link>
+          <Link to="/polls/new">Create poll</Link>
           <button type="button" onClick={logout} style={{ width: 'auto' }}>
             Logout
           </button>

@@ -25,7 +25,8 @@ server/
                           vote), GET results (aggregation, gated by resultsVisibility),
                           GET voters (creator-only)
   .env                 — MONGO_URI, JWT_SECRET, PORT
-client/                — React (Vite) app: Auth, PollList, PollDetail pages
+client/                — React (Vite) app: Auth (/login), PollList (/polls),
+                          CreatePoll (/polls/new), PollDetail (/polls/:id)
 server/scripts/concurrency-test.js — fires 50 parallel votes, expects 1 success + 49 conflicts
 README.md, INTERVIEW_NOTES.md — setup guide + interview prep doc
 ```
