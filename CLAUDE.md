@@ -124,6 +124,16 @@ README.md, INTERVIEW_NOTES.md — setup guide + interview prep doc
   for a brand-new user clicking a shared /p/:token link — without it
   they'd land on the generic poll list after registering, with no way
   back to the poll they were actually invited to.
+- `POST /api/polls` validates `expiresAt` with `isNaN(Date.parse(expiresAt))`
+  before creating the poll — garbage input becomes an Invalid Date, and
+  `new Date() > invalidDate` is always false, which would make
+  `isPollClosed()` silently never consider the poll expired by time.
+- `GET /:id/voters` checks `poll.showVoters` in addition to the creator
+  check — the frontend only shows the "Show voter list" button when
+  `showVoters` is true, but that was only a UI hint; the API itself didn't
+  enforce it, so the creator could fetch every voter's email directly even
+  for a poll created with `showVoters: false`, silently breaking the
+  anonymity promise shown to voters on that poll.
 
 ## 6. Coding rules
 - Keep files under ~100 lines where possible.

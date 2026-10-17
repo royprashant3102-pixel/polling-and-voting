@@ -49,6 +49,16 @@ async function loadPollForRequest(req, res) {
 router.post('/', auth, async (req, res) => {
   try {
     const { question, options, expiresAt, resultsVisibility, showVoters, visibility } = req.body;
+
+    // Garbage input (e.g. a malformed string) becomes an Invalid Date,
+    // and `new Date() > invalidDate` is always false — isPollClosed()
+    // would then never consider the poll expired by time, making it
+    // silently un-closeable except by the creator manually closing it.
+    // Reject bad input explicitly instead of creating that half-broken poll.
+    if (isNaN(Date.parse(expiresAt))) {
+      return res.status(400).json({ error: 'expiresAt must be a valid date' });
+    }
+
     const poll = await Poll.create({
       question,
       options,
@@ -213,9 +223,12 @@ router.get('/:id/results', async (req, res) => {
 });
 
 // ---------- GET /api/polls/:id/voters — creator-only voter list ----------
-// Only meaningful when showVoters was enabled at creation. Login required;
-// 403 for anyone other than the poll's creator, regardless of showVoters,
-// since this exposes who voted for what.
+// Only available when showVoters was enabled at creation — voters are
+// shown a notice telling them whether this is on, and that notice is a
+// promise, not just a UI hint. Login required; 403 for anyone but the
+// creator AND 403 if showVoters is off, even for the creator, so there's
+// no way to pull voter emails for a poll that promised anonymity by
+// hitting this endpoint directly instead of going through the UI button.
 router.get('/:id/voters', auth, async (req, res) => {
   try {
     const poll = await loadPollForRequest(req, res);
@@ -223,6 +236,9 @@ router.get('/:id/voters', auth, async (req, res) => {
 
     if (String(poll.createdBy) !== req.user.id) {
       return res.status(403).json({ error: 'Only the poll creator can view voters' });
+    }
+    if (!poll.showVoters) {
+      return res.status(403).json({ error: 'Voter list is not enabled for this poll' });
     }
 
     // populate('userId', 'email') joins in just the email field from User,

@@ -528,6 +528,31 @@ here, but the pattern should hold for anything).
     attaches `x-share-token` on every request for that poll, the same as
     if they'd had the token from the start.
 
+33. **What did a security review of this app turn up?**
+    Two real bugs, both fixed: (1) `expiresAt` wasn't validated on poll
+    creation — garbage input became an Invalid Date, and `new Date() >
+    invalidDate` is always `false`, so `isPollClosed()` would never
+    consider that poll expired by time (the creator could still close it
+    manually, so impact was limited, but it's a genuine unvalidated-input
+    bug). Fixed with `isNaN(Date.parse(expiresAt))` before creating the
+    poll. (2) `GET /:id/voters` checked that the caller was the creator,
+    but never checked `poll.showVoters` — so a creator could fetch every
+    voter's email directly via the API even on a poll created with
+    `showVoters: false`, bypassing the anonymity promise shown to voters.
+    The frontend only hid the button; the API didn't enforce the rule it
+    claimed to in its own comment. Fixed by adding the `showVoters` check
+    server-side, where it actually belongs — the UI was never the
+    boundary, the endpoint was.
+
+34. **What's the general lesson from finding #2 above?**
+    A comment describing a security property (`"Only meaningful when
+    showVoters was enabled"`) is not the same as code enforcing it. The
+    frontend correctly hid the button, which made the gap easy to miss in
+    normal use — nothing in the UI ever exercised the broken path. The
+    actual authorization boundary has to live in the route handler itself,
+    checked against the database, not inferred from "well, the button that
+    calls this is conditionally rendered."
+
 ## 4. Known limitations
 - JWTs cannot be revoked before they expire (no server-side blocklist).
 - Live results use polling, not WebSockets/SSE — simpler, but has up to 3s
