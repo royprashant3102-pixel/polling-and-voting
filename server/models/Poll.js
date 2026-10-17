@@ -29,6 +29,19 @@ const pollSchema = new mongoose.Schema(
       ref: 'User',
       required: true,
     },
+
+    // resultsVisibility: "live" (default) shows running results to everyone;
+    // "afterClose" hides results from non-creators until expiresAt passes.
+    resultsVisibility: {
+      type: String,
+      enum: ['live', 'afterClose'],
+      default: 'live',
+    },
+
+    // showVoters: if true, the creator can see who voted for what via
+    // GET /:id/voters. Voters are shown a notice at creation time so they
+    // know their vote won't be anonymous.
+    showVoters: { type: Boolean, default: false },
   },
   // timestamps: true → Mongoose auto-adds createdAt and updatedAt fields
   { timestamps: true }

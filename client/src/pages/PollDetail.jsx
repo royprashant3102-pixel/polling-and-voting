@@ -6,6 +6,7 @@ export default function PollDetail() {
   const { id } = useParams();
   const [poll, setPoll] = useState(null);
   const [results, setResults] = useState(null);
+  const [resultsHidden, setResultsHidden] = useState(false);
   const [message, setMessage] = useState('');
 
   useEffect(() => {
@@ -17,7 +18,16 @@ export default function PollDetail() {
   // real-time", and this project has no need for push-on-every-vote latency.
   useEffect(() => {
     function fetchResults() {
-      api.get(`/polls/${id}/results`).then((res) => setResults(res.data));
+      api
+        .get(`/polls/${id}/results`)
+        .then((res) => {
+          setResults(res.data);
+          setResultsHidden(false);
+        })
+        .catch((err) => {
+          // 403 here means resultsVisibility === "afterClose" and we're not the creator
+          if (err.response?.status === 403) setResultsHidden(true);
+        });
     }
     fetchResults();
     const interval = setInterval(fetchResults, 3000);
@@ -58,14 +68,18 @@ export default function PollDetail() {
       {message && <p className="error">{message}</p>}
 
       <h3>Results (updates every 3s)</h3>
-      {results?.results.map((r) => (
-        <div key={r.option} className="bar-row">
-          <span>{r.option} ({r.count})</span>
-          <div className="bar-track">
-            <div className="bar-fill" style={{ width: `${(r.count / maxCount) * 100}%` }} />
+      {resultsHidden ? (
+        <p className="muted">Results will be visible after the poll closes.</p>
+      ) : (
+        results?.results.map((r) => (
+          <div key={r.option} className="bar-row">
+            <span>{r.option} ({r.count})</span>
+            <div className="bar-track">
+              <div className="bar-fill" style={{ width: `${(r.count / maxCount) * 100}%` }} />
+            </div>
           </div>
-        </div>
-      ))}
+        ))
+      )}
     </div>
   );
 }

@@ -7,6 +7,7 @@ export default function PollList() {
   const [question, setQuestion] = useState('');
   const [options, setOptions] = useState(['', '']); // start with 2 empty options (the minimum)
   const [expiresAt, setExpiresAt] = useState('');
+  const [resultsVisibility, setResultsVisibility] = useState('live');
   const [error, setError] = useState('');
   const navigate = useNavigate();
 
@@ -36,11 +37,13 @@ export default function PollList() {
         // Convert explicitly here, anchored to the browser's local time,
         // into a UTC ISO string — so the server always stores unambiguous UTC.
         expiresAt: new Date(expiresAt).toISOString(),
+        resultsVisibility,
       });
       setPolls([res.data, ...polls]);
       setQuestion('');
       setOptions(['', '']);
       setExpiresAt('');
+      setResultsVisibility('live');
     } catch (err) {
       if (err.response?.status === 401) {
         setError('You must be logged in to create a poll');
@@ -87,6 +90,10 @@ export default function PollList() {
             onChange={(e) => setExpiresAt(e.target.value)}
             required
           />
+          <select value={resultsVisibility} onChange={(e) => setResultsVisibility(e.target.value)}>
+            <option value="live">Show results live</option>
+            <option value="afterClose">Hide results until poll closes</option>
+          </select>
           <button type="submit">Create Poll</button>
         </form>
         {error && <p className="error">{error}</p>}

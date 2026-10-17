@@ -1,4 +1,5 @@
 const router = require('express').Router();
+const jwt = require('jsonwebtoken');
 const Poll = require('../models/Poll');
 const Vote = require('../models/Vote');
 const auth = require('../middleware/auth');
@@ -6,11 +7,13 @@ const auth = require('../middleware/auth');
 // ---------- POST /api/polls — create a poll (login required) ----------
 router.post('/', auth, async (req, res) => {
   try {
-    const { question, options, expiresAt } = req.body;
+    const { question, options, expiresAt, resultsVisibility, showVoters } = req.body;
     const poll = await Poll.create({
       question,
       options,
       expiresAt,
+      resultsVisibility, // undefined falls back to schema default ("live")
+      showVoters,
       createdBy: req.user.id, // set by auth middleware from JWT
     });
     res.status(201).json(poll);
@@ -85,10 +88,30 @@ router.post('/:id/vote', auth, async (req, res) => {
 });
 
 // ---------- GET /api/polls/:id/results — aggregated results ----------
+// No auth required normally (results are public) — but when
+// resultsVisibility is "afterClose" we need to know who's asking, since
+// the creator is always allowed to see their own results early. So we
+// read the token IF one was sent, without requiring it (unlike authMiddleware).
 router.get('/:id/results', async (req, res) => {
   try {
     const poll = await Poll.findById(req.params.id);
     if (!poll) return res.status(404).json({ error: 'Poll not found' });
+
+    const header = req.headers.authorization;
+    let callerId = null;
+    if (header) {
+      try {
+        callerId = jwt.verify(header.split(' ')[1], process.env.JWT_SECRET).userId;
+      } catch {
+        // invalid/expired token on a public route — just treat as anonymous
+      }
+    }
+    const isCreator = callerId === String(poll.createdBy);
+    const isExpired = new Date() > poll.expiresAt;
+
+    if (poll.resultsVisibility === 'afterClose' && !isExpired && !isCreator) {
+      return res.status(403).json({ error: 'Results will be visible after the poll closes' });
+    }
 
     // --- MongoDB Aggregation Pipeline ---
     // $match: filter votes to only this poll (uses the index on pollId)
