@@ -1,5 +1,7 @@
 # Interview Notes
 
+UI is plain CSS with design tokens, no UI library.
+
 ## 1. Request flow
 
 **Login**

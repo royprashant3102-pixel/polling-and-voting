@@ -7,6 +7,7 @@ design reasoning and likely interview questions.
 ## Stack
 Node.js, Express, MongoDB, Mongoose, JWT, bcrypt, React (Vite), axios, plain CSS.
 No TypeScript, Docker, Redis, Socket.IO, or test frameworks.
+UI is plain CSS with design tokens, no UI library.
 
 ## Setup
 

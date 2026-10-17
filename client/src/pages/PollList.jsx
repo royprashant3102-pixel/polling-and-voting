@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import api from '../api';
 
 export default function PollList() {
@@ -10,7 +10,6 @@ export default function PollList() {
   const [resultsVisibility, setResultsVisibility] = useState('live');
   const [showVoters, setShowVoters] = useState(false);
   const [error, setError] = useState('');
-  const navigate = useNavigate();
 
   useEffect(() => {
     api.get('/polls').then((res) => setPolls(res.data));
@@ -56,14 +55,8 @@ export default function PollList() {
     }
   }
 
-  function logout() {
-    localStorage.removeItem('token');
-    navigate('/login');
-  }
-
   return (
     <div>
-      <button className="link" onClick={logout}>Logout</button>
       <div className="card">
         <h2>Create a poll</h2>
         <form onSubmit={handleCreate}>
@@ -97,13 +90,13 @@ export default function PollList() {
             <option value="live">Show results live</option>
             <option value="afterClose">Hide results until poll closes</option>
           </select>
-          <label>
+          <label className="checkbox-label">
             <input
               type="checkbox"
               checked={showVoters}
               onChange={(e) => setShowVoters(e.target.checked)}
             />
-            {' '}Let me (the creator) see who voted for what
+            Let me (the creator) see who voted for what
           </label>
           {/* Notice shown at creation time so the CREATOR understands what
               they're turning on — voters see their own notice on the vote page. */}
@@ -117,13 +110,21 @@ export default function PollList() {
 
       <div className="card">
         <h2>Polls</h2>
-        {polls.map((p) => (
-          <div key={p._id} className="poll-row">
-            <Link to={`/polls/${p._id}`}>{p.question}</Link>
-            {/* expiresAt is stored as UTC; toLocaleString() renders it in the viewer's own local timezone */}
-            <span className="muted"> — expires {new Date(p.expiresAt).toLocaleString()}</span>
-          </div>
-        ))}
+        {polls.map((p) => {
+          const closed = new Date() > new Date(p.expiresAt);
+          return (
+            <div key={p._id} className="poll-row">
+              <div>
+                <span className={`badge ${closed ? 'badge-closed' : 'badge-open'}`}>
+                  {closed ? 'Closed' : 'Open'}
+                </span>
+                <Link to={`/polls/${p._id}`}>{p.question}</Link>
+              </div>
+              {/* expiresAt is stored as UTC; toLocaleString() renders it in the viewer's own local timezone */}
+              <span className="muted">expires {new Date(p.expiresAt).toLocaleString()}</span>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

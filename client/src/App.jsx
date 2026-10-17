@@ -1,4 +1,5 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
+import Header from './Header';
 import Auth from './pages/Auth';
 import PollList from './pages/PollList';
 import PollDetail from './pages/PollDetail';
@@ -13,24 +14,29 @@ function RequireAuth({ children }) {
 
 export default function App() {
   return (
-    <Routes>
-      <Route path="/login" element={<Auth />} />
-      <Route
-        path="/"
-        element={
-          <RequireAuth>
-            <PollList />
-          </RequireAuth>
-        }
-      />
-      <Route
-        path="/polls/:id"
-        element={
-          <RequireAuth>
-            <PollDetail />
-          </RequireAuth>
-        }
-      />
-    </Routes>
+    <>
+      <Header />
+      <div className="page">
+        <Routes>
+          <Route path="/login" element={<Auth />} />
+          <Route
+            path="/"
+            element={
+              <RequireAuth>
+                <PollList />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/polls/:id"
+            element={
+              <RequireAuth>
+                <PollDetail />
+              </RequireAuth>
+            }
+          />
+        </Routes>
+      </div>
+    </>
   );
 }

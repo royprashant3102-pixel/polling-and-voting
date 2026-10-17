@@ -9,6 +9,7 @@ stays short, plain, and heavily commented on the WHY, not the WHAT.
 - Backend: Node.js, Express, MongoDB, Mongoose, JWT, bcrypt
 - Frontend: React (Vite), axios, plain CSS
 - Live results: `setInterval` polling every 3 seconds (no WebSockets/SSE)
+- UI is plain CSS with design tokens ("Warm Cards" style), no UI library.
 - **Not used**: TypeScript, Docker, Redis, Socket.IO, test frameworks
 
 ## 3. Folder structure (current)

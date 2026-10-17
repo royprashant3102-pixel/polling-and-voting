@@ -30,7 +30,8 @@ export default function Auth() {
   }
 
   return (
-    <div className="card">
+    <div className="auth-page">
+      <div className="card">
       <h2>{isRegister ? 'Register' : 'Login'}</h2>
       <form onSubmit={handleSubmit}>
         <input
@@ -53,6 +54,7 @@ export default function Auth() {
       <button className="link" onClick={() => setIsRegister(!isRegister)}>
         {isRegister ? 'Have an account? Login' : "No account? Register"}
       </button>
+      </div>
     </div>
   );
 }
