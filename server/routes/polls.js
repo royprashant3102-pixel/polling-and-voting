@@ -1,18 +1,34 @@
 const router = require('express').Router();
 const jwt = require('jsonwebtoken');
 const Poll = require('../models/Poll');
+const { isPollClosed } = Poll;
 const Vote = require('../models/Vote');
 const auth = require('../middleware/auth');
 
+// Reads whoever the JWT (if any) says the caller is, WITHOUT requiring one.
+// Used on routes that work for anonymous callers but need to recognize the
+// creator when present (results, and the linkOnly access check below).
+function callerIdFromToken(req) {
+  const header = req.headers.authorization;
+  if (!header) return null;
+  try {
+    return jwt.verify(header.split(' ')[1], process.env.JWT_SECRET).userId;
+  } catch {
+    return null; // invalid/expired token on a route that doesn't require one
+  }
+}
+
 // ---------- Shared "load + gate" helper for every poll-by-id route ----------
-// Loads the poll, then — if it's linkOnly — requires the matching
-// shareToken (sent as an 'x-share-token' header or a ?token= query param).
-// Returns 404, not 403, on both "poll doesn't exist" and "wrong/missing
-// token for a linkOnly poll": a 403 would confirm the poll exists to
-// someone without the link, which defeats the point of "link only."
-// Every route below that loads a poll by :id goes through this one
-// function, so the check can't be missed on a future route.
-async function requireAccess(req, res) {
+// Loads the poll, then — if it's linkOnly — requires EITHER the matching
+// shareToken (sent as an 'x-share-token' header or a ?token= query param)
+// OR the caller being the poll's own creator (identified via JWT, not the
+// token — so the creator never gets locked out of their own poll even
+// without the link). Returns 404, not 403, on "poll doesn't exist" and on
+// "wrong/missing token and not the creator": a 403 would confirm the poll
+// exists to someone without the link, defeating the point of "link only."
+// EVERY route below that loads a poll by :id calls this one function, so
+// the check can't be missed on a future route.
+async function loadPollForRequest(req, res) {
   const poll = await Poll.findById(req.params.id);
   if (!poll) {
     res.status(404).json({ error: 'Poll not found' });
@@ -20,7 +36,8 @@ async function requireAccess(req, res) {
   }
   if (poll.visibility === 'linkOnly') {
     const token = req.headers['x-share-token'] || req.query.token;
-    if (!token || token !== poll.shareToken) {
+    const isCreator = callerIdFromToken(req) === String(poll.createdBy);
+    if (!isCreator && (!token || token !== poll.shareToken)) {
       res.status(404).json({ error: 'Poll not found' });
       return null;
     }
@@ -82,8 +99,8 @@ router.get('/by-token/:token', async (req, res) => {
 // ---------- GET /api/polls/:id — single poll ----------
 router.get('/:id', async (req, res) => {
   try {
-    const poll = await requireAccess(req, res);
-    if (!poll) return; // requireAccess already sent the 404
+    const poll = await loadPollForRequest(req, res);
+    if (!poll) return; // loadPollForRequest already sent the 404
     res.json(poll);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -93,13 +110,13 @@ router.get('/:id', async (req, res) => {
 // ---------- POST /api/polls/:id/vote — cast a vote (login required) ----------
 router.post('/:id/vote', auth, async (req, res) => {
   try {
-    const poll = await requireAccess(req, res);
+    const poll = await loadPollForRequest(req, res);
     if (!poll) return;
 
-    // --- Server-side expiry check ---
+    // --- Server-side closed check (expired OR closed early) ---
     // We check here (not in the DB query) so we can return a clear 403.
-    if (new Date() > poll.expiresAt) {
-      return res.status(403).json({ error: 'This poll has expired' });
+    if (isPollClosed(poll)) {
+      return res.status(403).json({ error: 'This poll is closed' });
     }
 
     // --- Validate that the chosen option exists in this poll ---
@@ -137,7 +154,7 @@ router.post('/:id/vote', auth, async (req, res) => {
 // route relies on — no changes to that index or route.
 router.get('/:id/my-vote', auth, async (req, res) => {
   try {
-    const poll = await requireAccess(req, res);
+    const poll = await loadPollForRequest(req, res);
     if (!poll) return;
     const vote = await Vote.findOne({ pollId: req.params.id, userId: req.user.id });
     res.json({ option: vote ? vote.option : null });
@@ -153,22 +170,12 @@ router.get('/:id/my-vote', auth, async (req, res) => {
 // read the token IF one was sent, without requiring it (unlike authMiddleware).
 router.get('/:id/results', async (req, res) => {
   try {
-    const poll = await requireAccess(req, res);
+    const poll = await loadPollForRequest(req, res);
     if (!poll) return;
 
-    const header = req.headers.authorization;
-    let callerId = null;
-    if (header) {
-      try {
-        callerId = jwt.verify(header.split(' ')[1], process.env.JWT_SECRET).userId;
-      } catch {
-        // invalid/expired token on a public route — just treat as anonymous
-      }
-    }
-    const isCreator = callerId === String(poll.createdBy);
-    const isExpired = new Date() > poll.expiresAt;
+    const isCreator = callerIdFromToken(req) === String(poll.createdBy);
 
-    if (poll.resultsVisibility === 'afterClose' && !isExpired && !isCreator) {
+    if (poll.resultsVisibility === 'afterClose' && !isPollClosed(poll) && !isCreator) {
       return res.status(403).json({ error: 'Results will be visible after the poll closes' });
     }
 
@@ -203,7 +210,7 @@ router.get('/:id/results', async (req, res) => {
 // since this exposes who voted for what.
 router.get('/:id/voters', auth, async (req, res) => {
   try {
-    const poll = await requireAccess(req, res);
+    const poll = await loadPollForRequest(req, res);
     if (!poll) return;
 
     if (String(poll.createdBy) !== req.user.id) {
@@ -222,7 +229,7 @@ router.get('/:id/voters', auth, async (req, res) => {
 });
 
 // ---------- POST /api/polls/:id/regenerate-link — new token (creator-only) ----------
-// Deliberately uses Poll.findById, NOT requireAccess: the creator must be
+// Deliberately uses Poll.findById, NOT loadPollForRequest: the creator must be
 // able to regenerate even if they've lost their current link/token — their
 // identity comes from the JWT, not from already holding a valid token.
 // The old token stops working immediately since it's overwritten, not kept
@@ -243,6 +250,51 @@ router.post('/:id/regenerate-link', auth, async (req, res) => {
     await poll.save();
 
     res.json({ shareToken: poll.shareToken });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------- POST /api/polls/:id/close — close a poll early (creator-only) ----------
+// Sets closedAt to now; isPollClosed() then reports the poll as closed
+// regardless of expiresAt. Closing an already-closed poll is a no-op that
+// still returns 200 — closing twice isn't an error, it's just redundant.
+router.post('/:id/close', auth, async (req, res) => {
+  try {
+    const poll = await loadPollForRequest(req, res);
+    if (!poll) return;
+
+    if (String(poll.createdBy) !== req.user.id) {
+      return res.status(403).json({ error: 'Only the poll creator can close this poll' });
+    }
+
+    if (poll.closedAt == null) {
+      poll.closedAt = new Date();
+      await poll.save();
+    }
+
+    res.json(poll);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------- DELETE /api/polls/:id — delete a poll (creator-only) ----------
+// Also deletes the poll's votes so none are left orphaned, pointing at a
+// pollId that no longer resolves to anything.
+router.delete('/:id', auth, async (req, res) => {
+  try {
+    const poll = await loadPollForRequest(req, res);
+    if (!poll) return;
+
+    if (String(poll.createdBy) !== req.user.id) {
+      return res.status(403).json({ error: 'Only the poll creator can delete this poll' });
+    }
+
+    await Vote.deleteMany({ pollId: poll._id });
+    await Poll.deleteOne({ _id: poll._id });
+
+    res.json({ message: 'Poll deleted' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

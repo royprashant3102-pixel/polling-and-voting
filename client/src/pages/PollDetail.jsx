@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import api from '../api';
 
 // Handles both /polls/:id (normal polls, reached by JWT + public access)
@@ -8,6 +8,7 @@ import api from '../api';
 // this page makes, which is what requireAccess on the server checks.
 export default function PollDetail() {
   const { id: idParam, token: tokenParam } = useParams();
+  const navigate = useNavigate();
   const [poll, setPoll] = useState(null);
   const [results, setResults] = useState(null);
   const [resultsHidden, setResultsHidden] = useState(false);
@@ -109,7 +110,11 @@ export default function PollDetail() {
   if (!poll) return <p>Loading...</p>;
 
   const isCreator = poll.createdBy === currentUserId();
-  const closed = new Date() > new Date(poll.expiresAt);
+  // Mirrors the server's isPollClosed(poll): closed early OR past expiry.
+  // Keeping this as one expression (not two separate checks sprinkled
+  // around the component) is the frontend's version of the same rule the
+  // backend centralizes in models/Poll.js.
+  const closed = poll.closedAt != null || new Date() > new Date(poll.expiresAt);
   const totalVotes = results ? results.results.reduce((sum, r) => sum + r.count, 0) : 0;
 
   // Human-readable "time left" for the badge — small, local calc, no new data.
@@ -139,6 +144,16 @@ export default function PollDetail() {
     });
   }
 
+  function closePoll() {
+    if (!window.confirm('Close this poll early? Voters will no longer be able to vote.')) return;
+    api.post(`/polls/${id}/close`, {}, authHeaders()).then((res) => setPoll(res.data));
+  }
+
+  function deletePoll() {
+    if (!window.confirm('Delete this poll permanently? This also deletes all its votes.')) return;
+    api.delete(`/polls/${id}`, authHeaders()).then(() => navigate('/polls'));
+  }
+
   return (
     <div className="poll-layout">
       <div className="poll-main card">
@@ -158,11 +173,17 @@ export default function PollDetail() {
 
         <div>
           {poll.options.map((opt) => (
-            <button key={opt} onClick={() => vote(opt)} className="option-btn">
+            <button
+              key={opt}
+              onClick={() => vote(opt)}
+              className="option-btn"
+              disabled={closed}
+            >
               {opt}
             </button>
           ))}
         </div>
+        {closed && <p className="muted">Voting is closed for this poll.</p>}
         {message && <p className="error">{message}</p>}
 
         {resultsHidden ? (
@@ -197,6 +218,13 @@ export default function PollDetail() {
       {isCreator && (
         <div className="creator-panel">
           <h3>Creator view</h3>
+
+          <div>
+            {!closed && (
+              <button type="button" onClick={closePoll}>Close poll early</button>
+            )}
+            <button type="button" onClick={deletePoll}>Delete poll</button>
+          </div>
 
           {poll.visibility === 'linkOnly' && (
             <div>

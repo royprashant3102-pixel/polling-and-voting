@@ -39,15 +39,16 @@ npm run concurrency
 Fires 50 parallel vote requests from the same user and prints how many
 succeeded (201) vs. were rejected as duplicates (409). Expected: 1 and 49.
 
-### 4. Link-only poll proof script
+### 4. Link-only poll + close-early proof script
 With the server already running:
 ```bash
 cd server
 npm run linkonly-test
 ```
-Creates a link-only poll and checks: it's absent from the public list,
-fetching it by `_id` with no token 404s, fetching with the right token
-200s, and the old token 404s immediately after regenerating the link.
+Checks: a link-only poll is absent from the public list, fetching it by
+`_id` with no token 404s, fetching with the right token 200s, the old
+token 404s immediately after regenerating the link, a non-creator calling
+`/close` or `DELETE` gets 403, and voting on a closed poll returns 403.
 
 ## Environment variables (`server/.env`)
 See `server/.env.example`:
@@ -73,3 +74,10 @@ client/   React frontend (login/register, poll list, poll detail)
   `/p/:token`). The creator can copy the link or regenerate it — regenerating
   invalidates the old link immediately. See INTERVIEW_NOTES.md for the IDOR
   risk this relies on and its limitation (anyone with the link can share it).
+
+## Creator actions on a poll
+- **Close poll early**: stops new votes immediately, regardless of
+  `expiresAt`. Results and the poll itself stay viewable as before.
+- **Delete poll**: permanently removes the poll and all its votes. Both
+  actions ask for confirmation in the UI and are creator-only (403 for
+  anyone else).

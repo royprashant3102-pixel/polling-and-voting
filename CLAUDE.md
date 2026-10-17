@@ -18,21 +18,25 @@ server/
   server.js          — app setup, Mongo connect (with in-memory fallback), route mounting
   models/User.js      — email+password schema, bcrypt pre-save hook, comparePassword
   models/Poll.js      — question/options(2-5)/expiresAt/createdBy/resultsVisibility/showVoters/
-                          visibility("public"|"linkOnly")/shareToken(unique, sparse)
+                          visibility("public"|"linkOnly")/shareToken(unique, sparse)/closedAt.
+                          Exports isPollClosed(poll), generateShareToken().
   models/Vote.js      — pollId/userId/option + UNIQUE compound index (pollId, userId)
   middleware/auth.js   — verifies Bearer JWT, sets req.user.id
   routes/auth.js       — POST /register, POST /login
   routes/polls.js      — CRUD polls, POST vote (insert+catch 11000), GET my-vote (what did I
                           vote), GET results (aggregation, gated by resultsVisibility),
                           GET voters (creator-only), GET by-token/:token (linkOnly lookup),
-                          POST :id/regenerate-link (creator-only). requireAccess() is the one
-                          shared gate every poll-by-id route goes through for linkOnly checks.
+                          POST :id/regenerate-link (creator-only), POST :id/close (creator-only,
+                          idempotent), DELETE :id (creator-only, cascades Vote.deleteMany).
+                          loadPollForRequest() is the one shared gate every poll-by-id route
+                          goes through for linkOnly checks (creator always bypasses it).
   .env                 — MONGO_URI, JWT_SECRET, PORT
 client/                — React (Vite) app: Auth (/login), PollList (/polls),
                           CreatePoll (/polls/new), PollDetail (/polls/:id and /p/:token)
 server/scripts/concurrency-test.js — fires 50 parallel votes, expects 1 success + 49 conflicts
-server/scripts/linkonly-test.js — list-exclusion, 404-without-token, 200-with-token,
-                          404-after-regenerate
+server/scripts/linkonly-test.js — link-only checks (list-exclusion, 404-without-token,
+                          200-with-token, 404-after-regenerate) + close-early checks
+                          (non-creator 403 on close/delete, vote-after-close 403)
 README.md, INTERVIEW_NOTES.md — setup guide + interview prep doc
 ```
 
@@ -71,16 +75,34 @@ README.md, INTERVIEW_NOTES.md — setup guide + interview prep doc
   label over a white background, so a fixed white color fails contrast
   there. "Your vote" is shown as a small accent-colored pill next to the
   label instead of changing the label's own text color.
+- Poll "closed" state is decided in exactly ONE place: isPollClosed(poll) =
+  closedAt != null || now > expiresAt. The vote route and the results
+  "afterClose" gate both call this instead of re-deriving the expiry check,
+  so "is this poll closed" can never drift between call sites.
 - Link-only polls: a 404 (never 403) is returned for a missing/wrong
   shareToken on a linkOnly poll, on every route — a 403 would confirm the
   poll's existence to someone without the link, defeating the feature.
-  This check lives in ONE shared helper, requireAccess(), which every route
-  that loads a poll by :id calls — so a future new route can't forget it.
+  This check lives in ONE shared helper, loadPollForRequest(), which every
+  route that loads a poll by :id calls (get, vote, my-vote, results,
+  voters, close, delete) — so a future new route can't forget it. The
+  creator always bypasses the token check (identified via JWT, not
+  possession of the link), so they're never locked out of their own poll.
   GET /polls excludes linkOnly polls outright (not just "no link shown" —
   actually absent from the response). regenerate-link uses Poll.findById
-  directly (not requireAccess), since the creator must be able to recover
-  access even after losing their current token — their identity comes from
-  the JWT, not from already holding a valid link.
+  directly (not loadPollForRequest), since it must work even for a creator
+  who's lost their current token entirely.
+- Why a random shareToken instead of just using the poll's _id as the
+  "secret"? A Mongo ObjectId is NOT a secret — it's largely sequential/
+  time-derived and routinely exposed in URLs, logs, and API responses
+  throughout the app (every public poll's _id is visible). Using it as
+  an access-control value would mean "link only" protects nothing, since
+  anyone could predict or enumerate nearby IDs. shareToken is a separate
+  16-byte value from crypto.randomBytes, generated ONLY for linkOnly polls,
+  whose sole job is being unguessable — unrelated to the poll's identity.
+- Close early vs. delete: closing keeps the poll (and its votes, and its
+  results) around — voting stops, everything else works as before. Delete
+  is destructive and removes the poll AND cascades Vote.deleteMany({
+  pollId }) so no vote is left pointing at a pollId that no longer exists.
 
 ## 6. Coding rules
 - Keep files under ~100 lines where possible.
@@ -131,3 +153,9 @@ README.md, INTERVIEW_NOTES.md — setup guide + interview prep doc
   from crypto.randomBytes makes brute-forcing infeasible, but this is worth
   being explicit about rather than assuming "it's hidden" is the same as
   "it's protected."
+- Deleting a poll is permanent and immediate — no soft-delete/undo. A
+  creator who deletes by mistake has no recovery path.
+- Closing a poll early does not retroactively hide results that were
+  already visible (if resultsVisibility is "live") — it only stops new
+  votes; it has no effect on visibility, which stays governed by
+  resultsVisibility independently.

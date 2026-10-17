@@ -52,12 +52,14 @@ UI is plain CSS with design tokens, no UI library.
 
 **Link-only poll access (every poll-by-id route)**
 1. Every route that loads a poll by `:id` — get, vote, my-vote, results,
-   voters — calls one shared `requireAccess(req, res)` helper first instead
-   of `Poll.findById` directly.
-2. `requireAccess` loads the poll; if missing, 404. If the poll's
-   `visibility` is `"linkOnly"`, it also requires a matching token sent as
-   either the `x-share-token` header or a `?token=` query param — if that
-   token is missing or wrong, 404 again (never 403).
+   voters, close, delete — calls one shared `loadPollForRequest(req, res)`
+   helper first instead of `Poll.findById` directly.
+2. `loadPollForRequest` loads the poll; if missing, 404. If the poll's
+   `visibility` is `"linkOnly"`, it also requires EITHER a matching token
+   (sent as the `x-share-token` header or a `?token=` query param) OR the
+   caller being the poll's own creator (identified via JWT — never via the
+   token itself, so the creator is never locked out of their own poll). If
+   neither holds, 404 again (never 403).
 3. `GET /api/polls/by-token/:token` is the one entry point that doesn't need
    the Mongo `_id` at all — it looks the poll up by `shareToken` directly,
    which is how the frontend's `/p/:token` route resolves a poll it only
@@ -66,6 +68,22 @@ UI is plain CSS with design tokens, no UI library.
    not the token) and overwrites `shareToken` with a new
    `crypto.randomBytes(16).toString('hex')` value — the old token is simply
    gone, not kept as a second valid value, so it 404s on the very next request.
+   It deliberately uses `Poll.findById` directly, not `loadPollForRequest` —
+   the whole point is letting a creator recover even after losing their
+   current token, so the route can't require a currently-valid one to run.
+
+**Close early / Delete**
+1. `isPollClosed(poll)` — defined once on the `Poll` model — returns
+   `poll.closedAt != null || new Date() > poll.expiresAt`. The vote route
+   and the `resultsVisibility === "afterClose"` check both call this
+   instead of re-deriving "is this poll closed," so the rule can't drift.
+2. `POST /api/polls/:id/close` is creator-only (403 otherwise), sets
+   `closedAt = new Date()` only if it isn't already set — calling it twice
+   is a no-op that still returns 200 with the unchanged `closedAt`, not an
+   error.
+3. `DELETE /api/polls/:id` is creator-only, deletes the poll, and runs
+   `Vote.deleteMany({ pollId })` first — so no vote is left pointing at a
+   `pollId` that no longer resolves to anything.
 
 ## 2. Why I chose this
 
@@ -166,24 +184,50 @@ see it"). A 403 is itself a leak: it tells an attacker guessing IDs that
 they know where to focus a brute-force attempt on the token. A uniform 404
 makes "wrong ID" and "right ID, wrong token" indistinguishable from outside.
 
-Second, the check lives in exactly one function, `requireAccess`, and every
-route that loads a poll by `:id` calls it instead of `Poll.findById`
-directly. The alternative — repeating an `if (poll.visibility ===
-'linkOnly' && token !== poll.shareToken)` block in five different routes —
-is the classic way this kind of check gets accidentally skipped on a sixth
-route added later. Centralizing it means adding a new poll-by-id route is
-either "call requireAccess" (correct by construction) or a visible, obvious
-omission in review, not a silent gap.
+Second, the check lives in exactly one function, `loadPollForRequest`, and
+EVERY route that loads a poll by `:id` calls it instead of `Poll.findById`
+directly — get, vote, my-vote, results, voters, close, delete. The
+alternative — repeating an `if (poll.visibility === 'linkOnly' && token !==
+poll.shareToken)` block in seven different routes — is the classic way this
+kind of check gets accidentally skipped on an eighth route added later.
+Centralizing it means adding a new poll-by-id route is either "call
+loadPollForRequest" (correct by construction) or a visible, obvious
+omission in review, not a silent gap. The one exception is deliberate:
+`regenerate-link` uses `Poll.findById` directly, because requiring a
+currently-valid token to regenerate the token would make it impossible to
+recover a lost link — that route's authorization is "are you the creator,"
+full stop, checked via JWT.
+
+Inside `loadPollForRequest`, the creator always bypasses the token check
+(identified via a JWT read the same way `/results` does — optional, not
+required). Without this, a creator who lost their own link would be
+locked out of their own poll until they thought to call regenerate-link
+first, which is a confusing failure mode for something they created.
 
 **IDOR risk, named explicitly** — This whole feature is an IDOR (Insecure
 Direct Object Reference) mitigation pattern turned into the actual access
 control: normally you'd worry about an attacker swapping `:id` in a URL to
 reach someone else's resource; here, `shareToken` is deliberately the
-*only* legitimate way to reach a linkOnly poll by design, not a bug to fix.
-That only holds up because the token is unguessable — 16 bytes from
-`crypto.randomBytes`, never a counter or anything derived from the poll's
-`_id` or creation time. If it were guessable, every linkOnly poll would be
-exactly as exposed as a public one, just with extra steps.
+*only* legitimate way (besides being the creator) to reach a linkOnly poll
+by design, not a bug to fix. That only holds up because the token is
+unguessable — 16 bytes from `crypto.randomBytes`, never a counter or
+anything derived from the poll's `_id` or creation time. **Specifically,
+it is never the poll's `_id` itself** — a Mongo ObjectId is partly
+time-derived and gets exposed constantly (every public poll's `_id` is
+visible in its own URL and API response), so using it as the "secret"
+would mean an attacker who's seen *any* poll's `_id` has a head start on
+guessing nearby ones. If the token were guessable the same way, every
+linkOnly poll would be exactly as exposed as a public one, just with
+extra steps.
+
+**isPollClosed as a single source of truth** — Before this feature,
+"is the poll still open" was one check (`new Date() > poll.expiresAt`)
+duplicated in the vote route and the results visibility gate. Adding a
+second way for a poll to become closed (closing early) without
+consolidating that check first would have meant finding and updating two
+places, with a real chance of missing one — exactly the bug class
+`loadPollForRequest` was built to avoid for linkOnly access. So
+`isPollClosed(poll)` lives once on the model and both call sites use it.
 
 ## 3. Fifteen likely interviewer questions
 
@@ -341,13 +385,13 @@ exactly as exposed as a public one, just with extra steps.
     on top of one — see the IDOR discussion above.
 
 24. **Why does `regenerate-link` use `Poll.findById` instead of the shared
-    `requireAccess` helper?**
-    `requireAccess` is for "can this caller reach this poll" — correct for
-    reads/votes, but wrong here: regeneration exists specifically so a
-    creator who's *lost* their current token can still get a new one.
-    Gating it on already holding a valid token would make that impossible.
-    Authorization for this route comes entirely from the JWT (`poll.createdBy
-    === req.user.id`), not from token possession.
+    `loadPollForRequest` helper?**
+    `loadPollForRequest` answers "can this caller reach this poll" —
+    correct for reads/votes, but wrong here: regeneration exists
+    specifically so a creator who's *lost* their current token can still
+    get a new one. Gating it on already holding a valid token would make
+    that impossible. Authorization for this route comes entirely from the
+    JWT (`poll.createdBy === req.user.id`), not from token possession.
 
 25. **Is "link only" real privacy/security, or just obscurity?**
     Honestly, closer to obscurity with a cryptographically strong secret —
@@ -358,6 +402,41 @@ exactly as exposed as a public one, just with extra steps.
     safe from ID-enumeration attacks), but it is not the same guarantee as
     per-user access control — there's no login-gated allowlist of who's
     permitted to view it.
+
+26. **Why consolidate "is this poll closed" into `isPollClosed` instead of
+    just adding a `closedAt` check next to the existing expiry check in the
+    vote route?**
+    Because there were already two places deciding "is voting still
+    allowed": the vote route's expiry check, and the results route's
+    `afterClose` visibility gate. Adding a second condition (closed early)
+    to only one of those two would silently desync them — e.g. voting
+    correctly blocked after closing early, but results still treating the
+    poll as "not yet closed" because that route never learned about
+    `closedAt`. One function both call sites use removes that possibility.
+
+27. **What's the difference between closing a poll and deleting it?**
+    Closing is non-destructive — the poll, its votes, and its results stay
+    exactly as they were, voting just stops. Delete is destructive: the
+    poll document and `Vote.deleteMany({ pollId })` both run, so the poll
+    and every vote on it are gone, with no soft-delete or undo.
+
+28. **Closing an already-closed poll — what should happen?**
+    Nothing changes. The route checks `if (poll.closedAt == null)` before
+    setting it, so a second call doesn't overwrite the original close
+    timestamp — it just returns 200 with the poll as it already was. This
+    matters if two tabs or a retried request both call `/close`: neither
+    one errors, and `closedAt` reflects the *first* time it happened, not
+    whichever request happened to run last.
+
+29. **Why does `DELETE` need to touch the `Vote` collection at all — isn't
+    deleting the `Poll` document enough?**
+    MongoDB has no foreign keys or cascading deletes — `Vote.pollId` is
+    just an `ObjectId` field with no enforced relationship to `Poll._id`.
+    Deleting only the poll would leave every vote on it as an orphan: rows
+    referencing a `pollId` that resolves to nothing, invisible in the UI
+    but still occupying space and still countable by anything that queries
+    `Vote` directly (like a future admin report). `Vote.deleteMany({
+    pollId })` has to run explicitly as part of the same delete operation.
 
 ## 4. Known limitations
 - JWTs cannot be revoked before they expire (no server-side blocklist).
@@ -390,3 +469,12 @@ exactly as exposed as a public one, just with extra steps.
 - No way to switch a poll between public and linkOnly after creation, or
   to set an explicit "only these emails can vote" allowlist — link-only is
   possession-based access, not identity-based.
+- Deleting a poll is permanent and immediate — no soft-delete, no undo, no
+  confirmation beyond the frontend's `window.confirm()` (which only guards
+  against misclicks, not a compromised account or a scripted request).
+- Closing a poll early has no effect on `resultsVisibility` — a poll
+  closed early with `"afterClose"` visibility still keeps results hidden
+  from non-creators until the closing moment (closing counts as the poll
+  becoming closed, so this actually makes results visible immediately,
+  which is correct, but worth being explicit that these are two
+  independent settings, not one toggling the other).

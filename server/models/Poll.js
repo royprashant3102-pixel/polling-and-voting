@@ -64,10 +64,25 @@ const pollSchema = new mongoose.Schema(
       unique: true,
       sparse: true,
     },
+
+    // closedAt: null until the creator closes the poll early via
+    // POST /:id/close. Once set, the poll is closed regardless of
+    // expiresAt — see isPollClosed() below, the one place "is this poll
+    // closed" is decided.
+    closedAt: { type: Date, default: null },
   },
   // timestamps: true → Mongoose auto-adds createdAt and updatedAt fields
   { timestamps: true }
 );
+
+// The ONE place "is this poll closed" is decided — closed early by the
+// creator (closedAt set) OR past its natural expiry. Every route and badge
+// that needs to know if voting is still allowed calls this instead of
+// re-deriving the same two-part check, so the rule can't drift between
+// call sites (e.g. one route checking closedAt but forgetting expiresAt).
+function isPollClosed(poll) {
+  return poll.closedAt != null || new Date() > poll.expiresAt;
+}
 
 // Generates a new random token for a linkOnly poll's shareable link.
 // crypto.randomBytes is cryptographically secure — unlike Math.random(),
@@ -80,3 +95,4 @@ function generateShareToken() {
 const Poll = mongoose.model('Poll', pollSchema);
 module.exports = Poll;
 module.exports.generateShareToken = generateShareToken;
+module.exports.isPollClosed = isPollClosed;

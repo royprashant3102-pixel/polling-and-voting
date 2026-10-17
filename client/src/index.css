@@ -195,6 +195,12 @@ input[type="checkbox"] {
   text-align: left;
 }
 
+.option-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+  background: var(--bg);
+}
+
 .bar-row {
   position: relative;
   border: var(--border);
