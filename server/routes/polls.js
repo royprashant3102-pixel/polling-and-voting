@@ -76,7 +76,7 @@ router.get('/', async (req, res) => {
   try {
     const polls = await Poll.find({ visibility: 'public' })
       .sort({ createdAt: -1 })
-      .select('question options expiresAt createdAt');
+      .select('question options expiresAt closedAt createdAt');
     res.json(polls);
   } catch (err) {
     res.status(500).json({ error: err.message });

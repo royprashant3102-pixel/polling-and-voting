@@ -32,28 +32,28 @@ export default function Auth() {
   return (
     <div className="auth-page">
       <div className="card">
-      <h2>{isRegister ? 'Register' : 'Login'}</h2>
-      <form onSubmit={handleSubmit}>
-        <input
-          type="email"
-          placeholder="Email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          required
-        />
-        <input
-          type="password"
-          placeholder="Password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          required
-        />
-        <button type="submit">{isRegister ? 'Register' : 'Login'}</button>
-      </form>
-      {error && <p className="error">{error}</p>}
-      <button className="link" onClick={() => setIsRegister(!isRegister)}>
-        {isRegister ? 'Have an account? Login' : "No account? Register"}
-      </button>
+        <h2>{isRegister ? 'Register' : 'Login'}</h2>
+        <form onSubmit={handleSubmit}>
+          <input
+            type="email"
+            placeholder="Email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+          />
+          <input
+            type="password"
+            placeholder="Password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+          />
+          <button type="submit">{isRegister ? 'Register' : 'Login'}</button>
+        </form>
+        {error && <p className="error">{error}</p>}
+        <button className="link" onClick={() => setIsRegister(!isRegister)}>
+          {isRegister ? 'Have an account? Login' : "No account? Register"}
+        </button>
       </div>
     </div>
   );

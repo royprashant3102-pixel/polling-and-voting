@@ -47,7 +47,7 @@ const pollSchema = new mongoose.Schema(
     // visibility: "public" (default) appears in GET /polls and is reachable
     // by _id. "linkOnly" is hidden from the list entirely and can only be
     // reached with the matching shareToken — see routes/polls.js's
-    // requireAccess helper, which every poll-loading route goes through.
+    // loadPollForRequest helper, which every poll-loading route goes through.
     visibility: {
       type: String,
       enum: ['public', 'linkOnly'],

@@ -3,8 +3,8 @@ import { Link } from 'react-router-dom';
 import api from '../api';
 
 // Shows every poll, split into "Open" (still votable) and "Closed" (past
-// expiresAt) sections, so a voter can tell at a glance which polls they
-// can still act on.
+// expiresAt OR closed early by the creator) sections, so a voter can tell
+// at a glance which polls they can still act on.
 export default function PollList() {
   const [polls, setPolls] = useState([]);
 
@@ -12,8 +12,13 @@ export default function PollList() {
     api.get('/polls').then((res) => setPolls(res.data));
   }, []);
 
+  // Mirrors the server's isPollClosed(poll): closed early OR past expiry.
+  function isClosed(p) {
+    return p.closedAt != null || new Date() > new Date(p.expiresAt);
+  }
+
   function renderRow(p) {
-    const closed = new Date() > new Date(p.expiresAt);
+    const closed = isClosed(p);
     return (
       <div key={p._id} className="poll-row">
         <div>
@@ -28,8 +33,8 @@ export default function PollList() {
     );
   }
 
-  const openPolls = polls.filter((p) => new Date() <= new Date(p.expiresAt));
-  const closedPolls = polls.filter((p) => new Date() > new Date(p.expiresAt));
+  const openPolls = polls.filter((p) => !isClosed(p));
+  const closedPolls = polls.filter(isClosed);
 
   return (
     <div>

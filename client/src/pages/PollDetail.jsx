@@ -5,7 +5,7 @@ import api from '../api';
 // Handles both /polls/:id (normal polls, reached by JWT + public access)
 // and /p/:token (linkOnly polls, reached only by the share token). The
 // share token — once known — is attached as 'x-share-token' on every call
-// this page makes, which is what requireAccess on the server checks.
+// this page makes, which is what loadPollForRequest on the server checks.
 export default function PollDetail() {
   const { id: idParam, token: tokenParam } = useParams();
   const navigate = useNavigate();
@@ -101,7 +101,7 @@ export default function PollDetail() {
       const status = err.response?.status;
       const serverMsg = err.response?.data?.error;
       if (status === 401) setMessage('You must be logged in to vote.');
-      else if (status === 403) setMessage(serverMsg || 'This poll has expired.');
+      else if (status === 403) setMessage(serverMsg || 'This poll is closed.');
       else if (status === 409) setMessage(serverMsg || 'You have already voted.');
       else setMessage(serverMsg || 'Vote failed.');
     }
