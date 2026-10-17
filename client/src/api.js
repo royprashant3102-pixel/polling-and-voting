@@ -1,7 +1,11 @@
 import axios from 'axios';
 
 // One shared axios instance pointed at the Express API.
-const api = axios.create({ baseURL: 'http://localhost:5001/api' });
+// VITE_API_URL is set per-environment (Vercel env var in production);
+// falls back to localhost for local dev when it's not set.
+const api = axios.create({
+  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:5001/api',
+});
 
 // Attach the JWT (if we have one) to every outgoing request.
 // This runs before each request, so login/register don't need special-casing —
