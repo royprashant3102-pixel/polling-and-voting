@@ -1,0 +1,69 @@
+body {
+  font-family: sans-serif;
+  max-width: 600px;
+  margin: 2rem auto;
+  padding: 0 1rem;
+  color: #222;
+}
+
+.card {
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+input, button {
+  display: block;
+  width: 100%;
+  margin: 0.4rem 0;
+  padding: 0.5rem;
+  box-sizing: border-box;
+}
+
+button {
+  cursor: pointer;
+}
+
+.link {
+  background: none;
+  border: none;
+  color: #2563eb;
+  text-decoration: underline;
+  width: auto;
+  padding: 0;
+}
+
+.error {
+  color: #b91c1c;
+}
+
+.muted {
+  color: #666;
+  font-size: 0.85rem;
+}
+
+.poll-row {
+  margin: 0.5rem 0;
+}
+
+.option-btn {
+  text-align: left;
+}
+
+.bar-row {
+  margin: 0.5rem 0;
+}
+
+.bar-track {
+  background: #eee;
+  border-radius: 4px;
+  height: 16px;
+  overflow: hidden;
+}
+
+.bar-fill {
+  background: #2563eb;
+  height: 100%;
+  transition: width 0.3s ease;
+}

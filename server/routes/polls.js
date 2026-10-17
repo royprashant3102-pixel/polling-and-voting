@@ -1,0 +1,118 @@
+const router = require('express').Router();
+const Poll = require('../models/Poll');
+const Vote = require('../models/Vote');
+const auth = require('../middleware/auth');
+
+// ---------- POST /api/polls — create a poll (login required) ----------
+router.post('/', auth, async (req, res) => {
+  try {
+    const { question, options, expiresAt } = req.body;
+    const poll = await Poll.create({
+      question,
+      options,
+      expiresAt,
+      createdBy: req.user.id, // set by auth middleware from JWT
+    });
+    res.status(201).json(poll);
+  } catch (err) {
+    // Mongoose validation errors (e.g. < 2 options) come here
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// ---------- GET /api/polls — list all polls ----------
+router.get('/', async (req, res) => {
+  try {
+    // Sort newest first; select only fields the list page needs
+    const polls = await Poll.find()
+      .sort({ createdAt: -1 })
+      .select('question options expiresAt createdAt');
+    res.json(polls);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------- GET /api/polls/:id — single poll ----------
+router.get('/:id', async (req, res) => {
+  try {
+    const poll = await Poll.findById(req.params.id);
+    if (!poll) return res.status(404).json({ error: 'Poll not found' });
+    res.json(poll);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------- POST /api/polls/:id/vote — cast a vote (login required) ----------
+router.post('/:id/vote', auth, async (req, res) => {
+  try {
+    const poll = await Poll.findById(req.params.id);
+    if (!poll) return res.status(404).json({ error: 'Poll not found' });
+
+    // --- Server-side expiry check ---
+    // We check here (not in the DB query) so we can return a clear 403.
+    if (new Date() > poll.expiresAt) {
+      return res.status(403).json({ error: 'This poll has expired' });
+    }
+
+    // --- Validate that the chosen option exists in this poll ---
+    const { option } = req.body;
+    if (!poll.options.includes(option)) {
+      return res.status(400).json({ error: 'Invalid option for this poll' });
+    }
+
+    // --- Insert the vote and let the unique index handle duplicates ---
+    // We do NOT do: "if (await Vote.findOne({pollId, userId})) return 409"
+    // because two parallel requests could both pass that check before
+    // either inserts → both would succeed → broken invariant.
+    // Instead, we insert directly. If the unique index rejects it,
+    // MongoDB throws error code 11000 which we catch below.
+    await Vote.create({
+      pollId: req.params.id,
+      userId: req.user.id,
+      option,
+    });
+
+    res.status(201).json({ message: 'Vote recorded' });
+  } catch (err) {
+    // --- Catch duplicate key error from the unique index ---
+    if (err.code === 11000) {
+      return res.status(409).json({ error: 'You have already voted' });
+    }
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------- GET /api/polls/:id/results — aggregated results ----------
+router.get('/:id/results', async (req, res) => {
+  try {
+    const poll = await Poll.findById(req.params.id);
+    if (!poll) return res.status(404).json({ error: 'Poll not found' });
+
+    // --- MongoDB Aggregation Pipeline ---
+    // $match: filter votes to only this poll (uses the index on pollId)
+    // $group: count votes per option using $sum: 1
+    const voteCounts = await Vote.aggregate([
+      { $match: { pollId: poll._id } },
+      { $group: { _id: '$option', count: { $sum: 1 } } },
+    ]);
+
+    // --- Include options with 0 votes ---
+    // The aggregation only returns options that have at least 1 vote.
+    // We merge with the poll's options array to fill in zeros.
+    const countsMap = {};
+    voteCounts.forEach((v) => (countsMap[v._id] = v.count));
+
+    const results = poll.options.map((opt) => ({
+      option: opt,
+      count: countsMap[opt] || 0,
+    }));
+
+    res.json({ question: poll.question, results });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+module.exports = router;

@@ -1,0 +1,19 @@
+{
+  "name": "polling-server",
+  "version": "1.0.0",
+  "description": "Polling / Voting App — Express + MongoDB backend",
+  "main": "server.js",
+  "scripts": {
+    "dev": "node server.js",
+    "concurrency": "node scripts/concurrency-test.js"
+  },
+  "dependencies": {
+    "bcrypt": "^5.1.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.0",
+    "jsonwebtoken": "^9.0.2",
+    "mongodb-memory-server": "^11.3.0",
+    "mongoose": "^8.6.0"
+  }
+}
