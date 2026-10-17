@@ -91,18 +91,22 @@ export default function PollDetail() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
+  // A second call here with a different option CHANGES the vote (the
+  // server upserts) rather than being rejected — a voter can change their
+  // mind any time before the poll closes. 409 no longer happens for "you
+  // already voted"; the only failure modes now are 401 (not logged in) and
+  // 403 (poll closed), both still server-enforced, not just hidden buttons.
   async function vote(option) {
     setMessage('');
     try {
-      await api.post(`/polls/${id}/vote`, { option }, authHeaders());
-      setMessage('Vote recorded!');
+      const res = await api.post(`/polls/${id}/vote`, { option }, authHeaders());
+      setMessage(res.data.message === 'Vote changed' ? 'Vote changed!' : 'Vote recorded!');
       setMyVote(option);
     } catch (err) {
       const status = err.response?.status;
       const serverMsg = err.response?.data?.error;
       if (status === 401) setMessage('You must be logged in to vote.');
       else if (status === 403) setMessage(serverMsg || 'This poll is closed.');
-      else if (status === 409) setMessage(serverMsg || 'You have already voted.');
       else setMessage(serverMsg || 'Vote failed.');
     }
   }
@@ -180,10 +184,15 @@ export default function PollDetail() {
               disabled={closed}
             >
               {opt}
+              {opt === myVote && ' (current vote)'}
             </button>
           ))}
         </div>
-        {closed && <p className="muted">Voting is closed for this poll.</p>}
+        {closed ? (
+          <p className="muted">Voting is closed for this poll.</p>
+        ) : (
+          myVote && <p className="muted">You can change your vote any time before the poll closes.</p>
+        )}
         {message && <p className="error">{message}</p>}
 
         {resultsHidden ? (

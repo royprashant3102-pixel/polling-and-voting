@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import Header from './Header';
 import Auth from './pages/Auth';
 import PollList from './pages/PollList';
@@ -8,9 +8,13 @@ import PollDetail from './pages/PollDetail';
 // Minimal route guard: no token in localStorage → bounce to /login.
 // We don't verify the token here (that's the server's job via authMiddleware);
 // this just avoids showing protected pages to someone obviously logged out.
+// Passing the current path as router state means a brand-new user who
+// clicks a shared poll link, registers, and logs in lands back on THAT
+// poll instead of the generic poll list — Auth.jsx reads this on success.
 function RequireAuth({ children }) {
   const token = localStorage.getItem('token');
-  return token ? children : <Navigate to="/login" />;
+  const location = useLocation();
+  return token ? children : <Navigate to="/login" state={{ from: location.pathname }} />;
 }
 
 export default function App() {

@@ -11,15 +11,24 @@ UI is plain CSS with design tokens, no UI library.
 4. Client stores the token in `localStorage` and attaches it as
    `Authorization: Bearer <token>` on every future request.
 
-**Vote**
+**Vote (cast OR change)**
 1. `POST /api/polls/:id/vote` hits `authMiddleware` first — verifies the JWT,
    sets `req.user.id`. Invalid/missing token → 401, request never reaches the route.
-2. Route fetches the poll, checks `expiresAt` against `new Date()` → 403 if expired.
+2. Route loads the poll via `loadPollForRequest`, checks `isPollClosed(poll)`
+   → 403 if closed (either expired or closed early).
 3. Checks the submitted `option` is actually one of the poll's options → 400 if not.
-4. Calls `Vote.create({ pollId, userId, option })` directly — no "has this user
-   voted?" check first.
-5. If a vote already exists for this `(pollId, userId)`, MongoDB's unique index
-   rejects the insert with error code `11000`, caught and returned as 409.
+4. Calls `Vote.findOneAndUpdate({ pollId, userId }, { option }, { upsert: true })`
+   — one call, no "has this user voted?" check first, and no separate
+   insert-vs-update branch. This single atomic operation either creates
+   the vote (first time) or updates it in place (voter changed their
+   mind) — MongoDB decides which, based on whether a row matching
+   `(pollId, userId)` already exists, and there's no gap between "check"
+   and "write" for two parallel requests to race through.
+5. Without `new: true`, this call returns the document as it was BEFORE
+   the update — `null` if nothing matched (this upsert just created the
+   first vote → 201 "Vote recorded"), or the previous vote document if one
+   already existed (→ 200 "Vote changed"). This is read entirely from the
+   same atomic write, not a separate lookup, so it can't reintroduce a race.
 
 **Results**
 1. `GET /api/polls/:id/results` — no auth strictly required, but the route
@@ -88,12 +97,35 @@ UI is plain CSS with design tokens, no UI library.
 ## 2. Why I chose this
 
 **Unique index vs. check-then-insert** — Check-then-insert (`findOne` then
-`create`) has a race window: two concurrent requests can both pass the check
-before either one inserts, so both succeed, producing two votes from one user.
-A unique index moves the invariant into the database itself. MongoDB enforces
-the unique index atomically, so only one of the concurrent inserts succeeds —
-the second throws `11000`, which the app catches and turns into a 409. This
-is also one DB round-trip instead of two.
+`create`/`update`) has a race window: two concurrent requests can both pass
+the check before either one writes, so both succeed, producing two votes
+from one user. A unique index moves the invariant into the database itself.
+
+This project went through two versions of "what happens on a second vote
+from the same user":
+
+- **v1 (insert-only, original design)**: `Vote.create()` directly, no
+  existence check. MongoDB enforces the unique index atomically, so only
+  one of two concurrent inserts succeeds — the second throws `11000`,
+  caught and turned into 409 "You have already voted." Voting was
+  permanent.
+- **v2 (current — changing your vote is allowed)**: `Vote.findOneAndUpdate(
+  { pollId, userId }, { option }, { upsert: true })`. Still one atomic
+  database operation, still built on the same unique index — but now the
+  "second write" updates the existing row instead of being rejected.
+  There's still no check-then-write gap: this isn't "check if a vote
+  exists, then decide whether to insert or update" in the app — it's one
+  call, and MongoDB resolves "does a row already exist for this
+  (pollId, userId)?" atomically as part of the same operation.
+
+Both versions share the same core property: the unique index is what
+makes "exactly one vote row per (pollId, userId), even under a real race"
+true. What changed is only the *outcome* for a repeat request — reject vs.
+update — not the mechanism that keeps it race-safe. concurrency-test.js
+was rewritten to match: it no longer asserts "1 success, 49 conflicts"
+(that was true for v1); it asserts "50 successful responses, but exactly
+1 vote row exists afterward" (true for v2, and honestly a stronger proof,
+since it checks the actual database state rather than just HTTP statuses).
 
 **Polling vs. WebSockets vs. SSE** — Polling every 3 seconds is a `setInterval`
 + `fetch` on the client; no new server infrastructure, no persistent
@@ -229,17 +261,44 @@ places, with a real chance of missing one — exactly the bug class
 `loadPollForRequest` was built to avoid for linkOnly access. So
 `isPollClosed(poll)` lives once on the model and both call sites use it.
 
+**Post-login redirect via router state, not a query param** — When an
+unauthenticated visitor hits a protected route (most commonly: a
+brand-new user clicking a shared `/p/:token` link), `RequireAuth`
+redirects to `/login`. Without remembering where they were headed,
+`Auth.jsx` always sent them to `/polls` after logging in — so someone
+invited to a specific poll would register, log in, and land on an
+unrelated list, with no obvious way back to the thing they were actually
+invited to. The fix passes the original path as React Router `state`
+(`<Navigate to="/login" state={{ from: location.pathname }} />`), which
+`Auth.jsx` reads back (`location.state?.from`) and navigates to after a
+successful login — falling back to `/polls` for a normal, unprompted
+visit to the login page. Router state rather than a `?redirect=` query
+param because it doesn't show up in the URL bar, isn't persisted in
+browser history as a separate entry, and doesn't need URL-encoding for
+paths that might contain special characters (a share token is just hex
+here, but the pattern should hold for anything).
+
 ## 3. Fifteen likely interviewer questions
 
 1. **How do you prevent double voting under concurrent requests?**
-   A unique compound index on `(pollId, userId)` in the `Vote` collection.
-   Insert directly; MongoDB rejects the second insert atomically with error
-   `11000`, which the route catches and returns as 409.
+   A unique compound index on `(pollId, userId)` in the `Vote` collection,
+   combined with `findOneAndUpdate(..., { upsert: true })` instead of a
+   separate check-then-write. There's no app-level gap between "does a
+   vote exist?" and "write the vote" for two parallel requests to race
+   through — MongoDB resolves that atomically as part of the one operation.
+   The index guarantees at most one row per `(pollId, userId)` no matter
+   how many requests arrive at once; whether the second one *inserts* or
+   *updates* that row, it can never create a second one.
 
-2. **Why not check if a vote exists before inserting?**
+2. **Why not check if a vote exists before writing?**
    Race condition — two requests can both pass the check before either
-   inserts. The index makes the database the single source of truth instead
-   of relying on an app-level check with a timing gap.
+   writes. The index (plus the atomic upsert) makes the database the
+   single source of truth instead of relying on an app-level check with a
+   timing gap. (Earlier versions of this app rejected a second vote
+   outright with 409; the current version allows changing your vote, so
+   the "second write" now updates instead of being rejected — but the
+   underlying race-safety mechanism, atomicity at the database level,
+   hasn't changed.)
 
 3. **What if the index hadn't finished building when a vote request came in?**
    Mongoose builds indexes asynchronously on `model` registration. In this
@@ -438,6 +497,37 @@ places, with a real chance of missing one — exactly the bug class
     `Vote` directly (like a future admin report). `Vote.deleteMany({
     pollId })` has to run explicitly as part of the same delete operation.
 
+30. **How does `POST /vote` know whether to return 201 (new vote) or 200
+    (changed vote) when it's one call, not a branch for each case?**
+    `findOneAndUpdate` without `new: true` returns the document as it was
+    *before* the update — not after. For a true upsert (no prior vote),
+    that's `null`; for an update (a vote already existed), it's the
+    previous vote. The route checks `previousVote === null` to decide the
+    status code and message. This is still one atomic database call — the
+    "which case was it" answer comes from what that single call returns,
+    not from a second query that could introduce its own race.
+
+31. **Can a malicious or buggy client spam vote-changes — vote A, then B,
+    then A, thousands of times?**
+    Nothing currently rate-limits this beyond whatever auth/network
+    friction exists (see known limitations — there's no rate limiting
+    anywhere in this app yet). Each call is still safe individually
+    (atomic upsert, correct final state), so spamming it wouldn't corrupt
+    data or create duplicate votes — just unnecessary write load. A
+    production version would want rate limiting on this route specifically,
+    separate from the general "no rate limiting" gap.
+
+32. **Walk me through what happens end-to-end when a brand-new user clicks
+    a shared link-only poll link.**
+    They hit `/p/:token` → `RequireAuth` finds no token in `localStorage`
+    → redirects to `/login`, passing `{ from: '/p/:token' }` as router
+    state → they register, then log in on the same page → `Auth.jsx`
+    reads `location.state.from` and navigates there → `PollDetail` (via
+    the `/p/:token` route) resolves the poll by calling
+    `GET /by-token/:token`, learns the real `_id`, and from then on
+    attaches `x-share-token` on every request for that poll, the same as
+    if they'd had the token from the start.
+
 ## 4. Known limitations
 - JWTs cannot be revoked before they expire (no server-side blocklist).
 - Live results use polling, not WebSockets/SSE — simpler, but has up to 3s
@@ -478,3 +568,14 @@ places, with a real chance of missing one — exactly the bug class
   becoming closed, so this actually makes results visible immediately,
   which is correct, but worth being explicit that these are two
   independent settings, not one toggling the other).
+- Vote changes have no history — only the current vote is stored, so
+  there's no way to see "voted A, then changed to B" after the fact,
+  either as the voter or as the creator viewing the voter list.
+- No rate limiting on vote-changing specifically. Each call is atomic and
+  safe individually, but nothing stops a client from calling it repeatedly
+  in a tight loop — not a correctness problem, just unnecessary load.
+- The post-login redirect only remembers one hop: if a logged-out user
+  bounces through `/login` → registers → logs in, they land back on the
+  original path, but if they then manually navigate elsewhere and get
+  logged out again, the "from" state from the first bounce is gone —
+  there's no persistent "return to this later" beyond a single redirect.

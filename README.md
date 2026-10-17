@@ -36,8 +36,11 @@ With the server already running:
 cd server
 npm run concurrency
 ```
-Fires 50 parallel vote requests from the same user and prints how many
-succeeded (201) vs. were rejected as duplicates (409). Expected: 1 and 49.
+Fires 50 parallel vote requests (alternating option) from the same user
+and confirms they all succeed (200/201 — voting upserts, so a repeat
+request changes the vote instead of being rejected) while exactly 1 vote
+row exists for that poll afterward, proving the race is still handled
+safely by MongoDB's atomic upsert and the unique index underneath it.
 
 ### 4. Link-only poll + close-early proof script
 With the server already running:
@@ -81,3 +84,13 @@ client/   React frontend (login/register, poll list, poll detail)
 - **Delete poll**: permanently removes the poll and all its votes. Both
   actions ask for confirmation in the UI and are creator-only (403 for
   anyone else).
+
+## Voting
+A voter can change their mind any time before the poll closes — voting
+again updates the existing vote instead of being rejected. Once the poll
+closes (naturally or early), voting is blocked with a 403.
+
+## New users and shared links
+A brand-new user who clicks a shared link-only poll link is redirected
+through registration/login and lands back on that exact poll afterward,
+not the generic poll list.

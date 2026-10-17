@@ -107,7 +107,16 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// ---------- POST /api/polls/:id/vote — cast a vote (login required) ----------
+// ---------- POST /api/polls/:id/vote — cast or CHANGE a vote (login required) ----------
+// A voter can change their mind any time before the poll closes — calling
+// this again with a different option updates their existing vote instead
+// of being rejected. This is still built on the unique index, not a
+// check-then-write: findOneAndUpdate(..., { upsert: true }) is ONE atomic
+// operation on MongoDB's side. Two parallel requests from the same user
+// can't both "win" a race to insert, because there's no separate insert
+// step for them to race on — the index guarantees there is ever only one
+// vote document for this (pollId, userId), and this operation either
+// creates it or updates the one that's already there, atomically either way.
 router.post('/:id/vote', auth, async (req, res) => {
   try {
     const poll = await loadPollForRequest(req, res);
@@ -125,24 +134,23 @@ router.post('/:id/vote', auth, async (req, res) => {
       return res.status(400).json({ error: 'Invalid option for this poll' });
     }
 
-    // --- Insert the vote and let the unique index handle duplicates ---
-    // We do NOT do: "if (await Vote.findOne({pollId, userId})) return 409"
-    // because two parallel requests could both pass that check before
-    // either inserts → both would succeed → broken invariant.
-    // Instead, we insert directly. If the unique index rejects it,
-    // MongoDB throws error code 11000 which we catch below.
-    await Vote.create({
-      pollId: req.params.id,
-      userId: req.user.id,
-      option,
-    });
+    // findOneAndUpdate WITHOUT new:true returns the document as it was
+    // BEFORE this update — null if nothing matched (i.e. this upsert just
+    // created the first vote), or the previous vote if one already
+    // existed. That's how we tell "first vote" from "changed vote" for
+    // the response, without a separate findOne first (which would
+    // reintroduce exactly the race condition this design avoids).
+    const previousVote = await Vote.findOneAndUpdate(
+      { pollId: req.params.id, userId: req.user.id },
+      { option },
+      { upsert: true }
+    );
+    const wasNewVote = previousVote === null;
 
-    res.status(201).json({ message: 'Vote recorded' });
+    res.status(wasNewVote ? 201 : 200).json({
+      message: wasNewVote ? 'Vote recorded' : 'Vote changed',
+    });
   } catch (err) {
-    // --- Catch duplicate key error from the unique index ---
-    if (err.code === 11000) {
-      return res.status(409).json({ error: 'You have already voted' });
-    }
     res.status(500).json({ error: err.message });
   }
 });

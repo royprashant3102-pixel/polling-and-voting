@@ -23,8 +23,9 @@ server/
   models/Vote.js      — pollId/userId/option + UNIQUE compound index (pollId, userId)
   middleware/auth.js   — verifies Bearer JWT, sets req.user.id
   routes/auth.js       — POST /register, POST /login
-  routes/polls.js      — CRUD polls, POST vote (insert+catch 11000), GET my-vote (what did I
-                          vote), GET results (aggregation, gated by resultsVisibility),
+  routes/polls.js      — CRUD polls, POST vote (upsert — first vote OR change an existing one),
+                          GET my-vote (what did I vote), GET results (aggregation, gated by
+                          resultsVisibility),
                           GET voters (creator-only), GET by-token/:token (linkOnly lookup),
                           POST :id/regenerate-link (creator-only), POST :id/close (creator-only,
                           idempotent), DELETE :id (creator-only, cascades Vote.deleteMany).
@@ -33,7 +34,8 @@ server/
   .env                 — MONGO_URI, JWT_SECRET, PORT
 client/                — React (Vite) app: Auth (/login), PollList (/polls),
                           CreatePoll (/polls/new), PollDetail (/polls/:id and /p/:token)
-server/scripts/concurrency-test.js — fires 50 parallel votes, expects 1 success + 49 conflicts
+server/scripts/concurrency-test.js — fires 50 parallel votes (alternating option) from one
+                          user, expects 50 successful responses but exactly 1 vote row
 server/scripts/linkonly-test.js — link-only checks (list-exclusion, 404-without-token,
                           200-with-token, 404-after-regenerate) + close-early checks
                           (non-creator 403 on close/delete, vote-after-close 403)
@@ -48,9 +50,21 @@ README.md, INTERVIEW_NOTES.md — setup guide + interview prep doc
 - Required env vars (`server/.env`): `MONGO_URI`, `JWT_SECRET`, `PORT`
 
 ## 5. Key design decisions (do not change without asking)
-- Unique compound index on Vote `(pollId, userId)`; insert directly and catch
-  Mongo error 11000 → HTTP 409. Never check-then-insert (race condition).
-- Poll expiry enforced server-side at vote time → 403 if expired.
+- Voting is an UPSERT, not insert-only: `Vote.findOneAndUpdate({ pollId,
+  userId }, { option }, { upsert: true })`. A voter can change their mind
+  any time before the poll closes — calling vote() again updates the
+  existing row instead of being rejected. The unique compound index on
+  `(pollId, userId)` is still what makes this safe: findOneAndUpdate with
+  upsert is ONE atomic operation on MongoDB's side, so there's still no
+  check-then-write gap for two parallel requests to race through — there's
+  no separate "does a vote exist?" step to race on at all. The index
+  guarantees exactly one vote document per (pollId, userId) no matter how
+  many requests arrive in parallel; this used to mean "the second one gets
+  rejected (409)," now it means "the second one updates the first (200)."
+  concurrency-test.js proves the new invariant: 50 parallel requests from
+  one user (alternating option) all return 200/201, but exactly 1 vote row
+  exists for that poll afterward.
+- Poll expiry enforced server-side at vote time → 403 if closed/expired.
 - JWT payload contains only `userId`; auth middleware sets `req.user.id`.
 - Results use one aggregation (`$match` + `$group` with `$sum: 1`), then merge
   in options with 0 votes (aggregation omits options nobody picked).
@@ -103,6 +117,13 @@ README.md, INTERVIEW_NOTES.md — setup guide + interview prep doc
   results) around — voting stops, everything else works as before. Delete
   is destructive and removes the poll AND cascades Vote.deleteMany({
   pollId }) so no vote is left pointing at a pollId that no longer exists.
+- Post-login redirect: RequireAuth passes the path it bounced the visitor
+  from as router state (`{ from: location.pathname }`) on the Navigate to
+  /login; Auth.jsx reads `location.state?.from` and navigates there after
+  a successful login, falling back to /polls otherwise. This matters most
+  for a brand-new user clicking a shared /p/:token link — without it
+  they'd land on the generic poll list after registering, with no way
+  back to the poll they were actually invited to.
 
 ## 6. Coding rules
 - Keep files under ~100 lines where possible.
@@ -159,3 +180,10 @@ README.md, INTERVIEW_NOTES.md — setup guide + interview prep doc
   already visible (if resultsVisibility is "live") — it only stops new
   votes; it has no effect on visibility, which stays governed by
   resultsVisibility independently.
+- Vote changes are not tracked historically — only the current vote is
+  stored. There's no audit trail of "voted A at 2pm, changed to B at
+  3pm," and `createdAt`/`updatedAt` on the Vote document are the only
+  trace that a change happened at all.
+- A poll creator cannot see whether a voter changed their mind (only the
+  current state, via the voter list) — same "no history" limitation as
+  above, just from the creator's side.
