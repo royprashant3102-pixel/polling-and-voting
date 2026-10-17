@@ -7,7 +7,22 @@ export default function PollDetail() {
   const [poll, setPoll] = useState(null);
   const [results, setResults] = useState(null);
   const [resultsHidden, setResultsHidden] = useState(false);
+  const [voters, setVoters] = useState(null);
   const [message, setMessage] = useState('');
+
+  // Decode the JWT payload (not verify — the server already does that) just
+  // to compare userId against poll.createdBy, so we know whether to show
+  // the creator-only voter list. JWTs are base64, not encrypted, so this is
+  // safe to read client-side; we never trust it for anything security-sensitive.
+  function currentUserId() {
+    const token = localStorage.getItem('token');
+    if (!token) return null;
+    try {
+      return JSON.parse(atob(token.split('.')[1])).userId;
+    } catch {
+      return null;
+    }
+  }
 
   useEffect(() => {
     api.get(`/polls/${id}`).then((res) => setPoll(res.data));
@@ -52,11 +67,20 @@ export default function PollDetail() {
   if (!poll) return <p>Loading...</p>;
 
   const maxCount = results ? Math.max(1, ...results.results.map((r) => r.count)) : 1;
+  const isCreator = poll.createdBy === currentUserId();
+
+  function loadVoters() {
+    api.get(`/polls/${id}/voters`).then((res) => setVoters(res.data));
+  }
 
   return (
     <div className="card">
       <h2>{poll.question}</h2>
       <p className="muted">Expires {new Date(poll.expiresAt).toLocaleString()}</p>
+
+      {poll.showVoters && (
+        <p className="muted">Note: the poll creator can see who voted for what.</p>
+      )}
 
       <div>
         {poll.options.map((opt) => (
@@ -79,6 +103,23 @@ export default function PollDetail() {
             </div>
           </div>
         ))
+      )}
+
+      {isCreator && poll.showVoters && (
+        <div>
+          <h3>Voters</h3>
+          {voters === null ? (
+            <button type="button" className="link" onClick={loadVoters}>
+              Show voter list
+            </button>
+          ) : (
+            <ul>
+              {voters.map((v, i) => (
+                <li key={i}>{v.email} — {v.option}</li>
+              ))}
+            </ul>
+          )}
+        </div>
       )}
     </div>
   );

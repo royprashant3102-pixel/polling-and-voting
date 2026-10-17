@@ -138,4 +138,28 @@ router.get('/:id/results', async (req, res) => {
   }
 });
 
+// ---------- GET /api/polls/:id/voters — creator-only voter list ----------
+// Only meaningful when showVoters was enabled at creation. Login required;
+// 403 for anyone other than the poll's creator, regardless of showVoters,
+// since this exposes who voted for what.
+router.get('/:id/voters', auth, async (req, res) => {
+  try {
+    const poll = await Poll.findById(req.params.id);
+    if (!poll) return res.status(404).json({ error: 'Poll not found' });
+
+    if (String(poll.createdBy) !== req.user.id) {
+      return res.status(403).json({ error: 'Only the poll creator can view voters' });
+    }
+
+    // populate('userId', 'email') joins in just the email field from User,
+    // instead of a second manual query per vote.
+    const votes = await Vote.find({ pollId: poll._id }).populate('userId', 'email');
+    const voters = votes.map((v) => ({ email: v.userId.email, option: v.option }));
+
+    res.json(voters);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
