@@ -62,7 +62,16 @@ export default function PollDetail() {
   }, [tokenParam]);
 
   useEffect(() => {
-    api.get('/auth/me').then((res) => setIsAdmin(res.data.isAdmin)).catch(() => {});
+    api
+      .get('/auth/me')
+      .then((res) => setIsAdmin(res.data.isAdmin))
+      .catch((err) => {
+        // Previously swallowed silently — if this fails, isAdmin stays
+        // false with no way to tell why. Logging it means a real failure
+        // (expired token, server down, CORS) shows up in devtools instead
+        // of just quietly hiding the admin button with no explanation.
+        console.error('Failed to check admin status:', err.response?.status, err.response?.data || err.message);
+      });
   }, []);
 
   useEffect(() => {
