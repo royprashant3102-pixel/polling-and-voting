@@ -57,6 +57,8 @@ README.md, INTERVIEW_NOTES.md — setup guide + interview prep doc
   interview question it relates to.
 - Be honest about limitations; never overclaim (e.g. say "MongoDB enforces the
   unique index atomically," not "atomic at the storage engine level").
+- Do NOT add a "Co-Authored-By: Claude" (or similar) trailer to git commits in
+  this repo. All commits should show the owner as sole author.
 
 ## 8. Current status
 - [x] Phase 1 — Auth (register, login, bcrypt, JWT, authMiddleware)
