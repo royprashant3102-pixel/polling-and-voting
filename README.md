@@ -4,6 +4,9 @@ A small full-stack polling app: Express + MongoDB backend, React (Vite) frontend
 Built as interview prep — see [INTERVIEW_NOTES.md](INTERVIEW_NOTES.md) for the
 design reasoning and likely interview questions.
 
+**Live demo**: https://polling-and-voting-three.vercel.app
+(frontend on Vercel, API on Render, database on MongoDB Atlas)
+
 ## Stack
 Node.js, Express, MongoDB, Mongoose, JWT, bcrypt, React (Vite), axios, plain CSS.
 No TypeScript, Docker, Redis, Socket.IO, or test frameworks.
