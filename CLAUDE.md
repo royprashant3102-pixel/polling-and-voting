@@ -21,8 +21,9 @@ server/
   models/Vote.js      — pollId/userId/option + UNIQUE compound index (pollId, userId)
   middleware/auth.js   — verifies Bearer JWT, sets req.user.id
   routes/auth.js       — POST /register, POST /login
-  routes/polls.js      — CRUD polls, POST vote (insert+catch 11000), GET results (aggregation,
-                          gated by resultsVisibility), GET voters (creator-only)
+  routes/polls.js      — CRUD polls, POST vote (insert+catch 11000), GET my-vote (what did I
+                          vote), GET results (aggregation, gated by resultsVisibility),
+                          GET voters (creator-only)
   .env                 — MONGO_URI, JWT_SECRET, PORT
 client/                — React (Vite) app: Auth, PollList, PollDetail pages
 server/scripts/concurrency-test.js — fires 50 parallel votes, expects 1 success + 49 conflicts
@@ -54,6 +55,16 @@ README.md, INTERVIEW_NOTES.md — setup guide + interview prep doc
   separate "preview" endpoint.
 - GET /:id/voters is creator-only (403 otherwise) and requires auth —
   unlike results, this route has no legitimate anonymous use case.
+- "Your vote" highlight on the poll page comes from GET /:id/my-vote
+  (auth required, simple `Vote.findOne({ pollId, userId })`), not local
+  component state — so it's correct after a refresh or a login from a
+  different device. The vote route and the unique index are untouched by
+  this; my-vote is a pure read against the same (pollId, userId) pair.
+- Result bar labels (option text + percentage) always render in var(--ink),
+  never white-on-accent — a bar at low fill % (e.g. 7%) leaves most of the
+  label over a white background, so a fixed white color fails contrast
+  there. "Your vote" is shown as a small accent-colored pill next to the
+  label instead of changing the label's own text color.
 
 ## 6. Coding rules
 - Keep files under ~100 lines where possible.

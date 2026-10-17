@@ -87,6 +87,20 @@ router.post('/:id/vote', auth, async (req, res) => {
   }
 });
 
+// ---------- GET /api/polls/:id/my-vote — what did I vote? (login required) ----------
+// Lets the frontend highlight "your vote" from the DB instead of local
+// state, so it survives a refresh or logging in from a different device.
+// Read-only lookup against the same unique (pollId, userId) pair the vote
+// route relies on — no changes to that index or route.
+router.get('/:id/my-vote', auth, async (req, res) => {
+  try {
+    const vote = await Vote.findOne({ pollId: req.params.id, userId: req.user.id });
+    res.json({ option: vote ? vote.option : null });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ---------- GET /api/polls/:id/results — aggregated results ----------
 // No auth required normally (results are public) — but when
 // resultsVisibility is "afterClose" we need to know who's asking, since

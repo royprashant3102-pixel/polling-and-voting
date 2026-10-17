@@ -9,10 +9,9 @@ export default function PollDetail() {
   const [resultsHidden, setResultsHidden] = useState(false);
   const [voters, setVoters] = useState(null);
   const [message, setMessage] = useState('');
-  // Tracks which option THIS browser session voted for, purely to highlight
-  // it in the results bars — set after a successful vote. Not fetched from
-  // the server (results/vote endpoints don't return per-user data), so a
-  // page refresh forgets it; that's a display nicety, not a source of truth.
+  // Which option the logged-in user voted for, fetched from the server
+  // (GET /my-vote) rather than kept only in local state — so the highlight
+  // survives a page refresh or logging in again on another device.
   const [myVote, setMyVote] = useState(null);
 
   // Decode the JWT payload (not verify — the server already does that) just
@@ -31,6 +30,7 @@ export default function PollDetail() {
 
   useEffect(() => {
     api.get(`/polls/${id}`).then((res) => setPoll(res.data));
+    api.get(`/polls/${id}/my-vote`).then((res) => setMyVote(res.data.option));
   }, [id]);
 
   // Live updates: poll the results endpoint every 3 seconds instead of
@@ -127,8 +127,11 @@ export default function PollDetail() {
                   className={`bar-fill ${isMine ? 'own-vote' : ''}`}
                   style={{ width: `${pct}%` }}
                 />
-                <div className={`bar-label ${isMine ? 'own-vote-label' : ''}`}>
-                  <span>{r.option}{isMine ? ' (your vote)' : ''}</span>
+                <div className="bar-label">
+                  <span>
+                    {r.option}
+                    {isMine && <span className="your-vote-pill">your vote</span>}
+                  </span>
                   <span>{pct}%</span>
                 </div>
               </div>

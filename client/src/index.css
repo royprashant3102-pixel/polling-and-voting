@@ -222,11 +222,22 @@ input[type="checkbox"] {
   align-items: center;
   padding: 0.6rem 0.9rem;
   font-weight: 700;
+  /* Always dark ink, even on the accent-colored "own vote" bar — a 7%-wide
+     fill leaves most of the label over white, so white text would be
+     unreadable there. Ink-on-yellow and ink-on-accent are both >4.5:1. */
+  color: var(--ink);
 }
 
-.bar-fill.own-vote + .bar-label,
-.bar-label.own-vote-label {
+/* "(your vote)" as its own small pill instead of inline white text, so it
+   stays legible at any bar width. */
+.your-vote-pill {
+  background: var(--accent);
   color: #fff;
+  border-radius: 999px;
+  padding: 0.1rem 0.6rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  margin-left: 0.5rem;
 }
 
 /* ---------- Creator panel ---------- */

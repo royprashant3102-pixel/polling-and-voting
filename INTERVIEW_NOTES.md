@@ -41,6 +41,15 @@ UI is plain CSS with design tokens, no UI library.
 3. `Vote.find({ pollId }).populate('userId', 'email')` joins in just the
    voter's email — never the full `User` document (no password hash).
 
+**My vote**
+1. `GET /api/polls/:id/my-vote` requires auth — `authMiddleware` sets `req.user.id`.
+2. `Vote.findOne({ pollId, userId: req.user.id })` — a single lookup against
+   the exact same `(pollId, userId)` pair the unique index and the vote
+   route already key on. Returns `{ option: "<choice>" }` or `{ option: null }`.
+3. The poll detail page calls this on load (alongside fetching the poll
+   itself) to highlight the user's own bar — so the highlight is correct
+   after a refresh, not just immediately after clicking vote.
+
 ## 2. Why I chose this
 
 **Unique index vs. check-then-insert** — Check-then-insert (`findOne` then
@@ -106,6 +115,29 @@ a public endpoint has to carry branching logic for a completely different
 trust level. A separate route with its own `authMiddleware` + ownership
 check keeps the two concerns — "can you see the tally" vs. "can you see who
 voted for what" — independently auditable.
+
+**"Your vote" from the server, not local state** — The first version tracked
+`myVote` purely as a `useState` set after a successful `POST /vote` call.
+That broke on refresh (state resets) and on a second device (never set at
+all), because it wasn't backed by anything durable. The fix is a tiny
+read-only endpoint, `GET /:id/my-vote`, doing exactly the lookup the vote
+route and its unique index already make possible: one `Vote.findOne({
+pollId, userId })`. The poll page now calls it on load, so the highlight
+reflects the database, not "did this tab happen to see the vote succeed."
+The optimistic `setMyVote(option)` right after voting stays in place too —
+it just means the UI updates instantly instead of waiting on a round trip,
+and it's always consistent with what that same `my-vote` call would return.
+
+**Result bar text contrast** — The first version made the label text white
+whenever it sat on the user's own (accent-colored) bar, on the assumption
+the whole label area would be accent-colored. That's only true near 100%
+fill — a bar at 7% is mostly white background with a thin accent sliver,
+so white text over white background is close to invisible. The fix keeps
+label text a constant `var(--ink)` regardless of fill color or width (ink
+has sufficient contrast against both the white card background and the
+accent/yellow fills), and moves the "your vote" indicator into its own
+small pill with its own background — a self-contained element that's never
+relying on what's behind it for contrast.
 
 ## 3. Fifteen likely interviewer questions
 
@@ -222,6 +254,28 @@ voted for what" — independently auditable.
     is. Keeping them as separate routes means the public endpoint never has
     a code path that could leak who-voted-for-what, even by a future bug —
     there's no branch in `/results` that touches voter emails at all.
+
+20. **Why add a whole endpoint just to know "did I vote and for what"
+    instead of keeping that in React state?**
+    Component state doesn't survive a page refresh or a different device —
+    it's not backed by anything durable, so it can silently go stale or
+    wrong. `GET /my-vote` is a one-line `Vote.findOne({ pollId, userId })`
+    against data that already exists (the same row the unique index
+    protects), so it's a cheap, always-correct source of truth instead of
+    trusting whatever the client happened to remember.
+
+21. **A result bar at 7% width had invisible white text on white background
+    — what was the actual bug, and why didn't just "making text black fix
+    it everywhere"?**
+    The original CSS set label color based on *which option was the user's
+    vote* (white if "my bar", default otherwise), not on *how much of the
+    bar was actually colored behind the text*. At high fill %, the label
+    sits entirely over the accent color, so white reads fine; at low fill %,
+    most of the label sits over the plain white card background, where
+    white text has ~1:1 contrast. The fix removes the conditional entirely —
+    label text is always ink, which has enough contrast against the card
+    background, the yellow bar, and the accent bar — so correctness doesn't
+    depend on fill percentage at all.
 
 ## 4. Known limitations
 - JWTs cannot be revoked before they expire (no server-side blocklist).
