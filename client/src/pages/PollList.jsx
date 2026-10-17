@@ -31,7 +31,11 @@ export default function PollList() {
       const res = await api.post('/polls', {
         question,
         options: options.filter((o) => o.trim() !== ''),
-        expiresAt,
+        // <input type="datetime-local"> gives a bare string with no timezone
+        // (e.g. "2026-10-25T14:30"), interpreted ambiguously if sent as-is.
+        // Convert explicitly here, anchored to the browser's local time,
+        // into a UTC ISO string — so the server always stores unambiguous UTC.
+        expiresAt: new Date(expiresAt).toISOString(),
       });
       setPolls([res.data, ...polls]);
       setQuestion('');
@@ -93,6 +97,7 @@ export default function PollList() {
         {polls.map((p) => (
           <div key={p._id} className="poll-row">
             <Link to={`/polls/${p._id}`}>{p.question}</Link>
+            {/* expiresAt is stored as UTC; toLocaleString() renders it in the viewer's own local timezone */}
             <span className="muted"> — expires {new Date(p.expiresAt).toLocaleString()}</span>
           </div>
         ))}
