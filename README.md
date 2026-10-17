@@ -49,3 +49,11 @@ See `server/.env.example`:
 server/   Express API (auth, polls, voting, results)
 client/   React frontend (login/register, poll list, poll detail)
 ```
+
+## Poll options at creation
+- **Results visibility**: "Show results live" (default) or "Hide results until
+  poll closes". When hidden, only the poll's creator can see results before
+  `expiresAt` passes — everyone else gets a 403 with a clear message.
+- **Voter list**: an optional checkbox lets the creator see who voted for
+  what (email + chosen option) after creation, via a button on the poll page.
+  Voters are shown a notice that their vote isn't anonymous when this is on.

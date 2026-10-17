@@ -20,11 +20,24 @@
    rejects the insert with error code `11000`, caught and returned as 409.
 
 **Results**
-1. `GET /api/polls/:id/results` — no auth required (results are public).
-2. One aggregation pipeline: `$match` on `pollId`, then `$group by option` with
-   `$sum: 1` to count votes per option in a single DB pass.
-3. Options with zero votes are merged in manually, since the aggregation only
+1. `GET /api/polls/:id/results` — no auth strictly required, but the route
+   reads an `Authorization` header if one is present (without requiring it)
+   so it can tell whether the caller is the poll's creator.
+2. If `resultsVisibility === "afterClose"` and the poll hasn't expired yet
+   and the caller isn't the creator → 403 with a clear message.
+3. Otherwise: one aggregation pipeline, `$match` on `pollId`, then
+   `$group by option` with `$sum: 1` to count votes per option in a single
+   DB pass.
+4. Options with zero votes are merged in manually, since the aggregation only
    returns options that have at least one vote.
+
+**Voters (creator-only)**
+1. `GET /api/polls/:id/voters` requires a valid JWT (unlike results, which
+   stays public) — `authMiddleware` runs first.
+2. Route checks `poll.createdBy` against `req.user.id` → 403 for anyone else,
+   regardless of whether `showVoters` is on.
+3. `Vote.find({ pollId }).populate('userId', 'email')` joins in just the
+   voter's email — never the full `User` document (no password hash).
 
 ## 2. Why I chose this
 
@@ -62,6 +75,35 @@ limitations).
 **MongoDB** — Natural fit for polls: variable number of options per poll,
 no joins needed for the core read/write paths, and unique compound indexes
 give us exactly the atomicity guarantee the voting logic depends on.
+
+**Timezone handling** — `<input type="datetime-local">` returns a bare
+string like `"2026-10-25T14:30"` with no timezone marker. Sending that
+string as-is to the server makes the eventual `Date` parse ambiguous —
+behavior isn't guaranteed to anchor to the value the user actually picked.
+The fix is to convert explicitly on the client, where we know the browser's
+local timezone: `new Date(inputValue).toISOString()` turns it into an
+unambiguous UTC string before it ever leaves the browser. The server only
+ever stores and compares UTC `Date` objects; display converts back to the
+viewer's local time via `.toLocaleString()`, which is also why two viewers
+in different timezones can look at the same poll and see correct local
+times without any per-user timezone field being stored anywhere.
+
+**Results visibility: public route reading an optional JWT, not a protected
+route** — I considered making `/results` require auth like `/vote` does and
+just returning different data depending on who's calling. I didn't, because
+results need to stay visible to anonymous viewers in the common case
+("live" visibility, no login needed to check in on a poll). So the route
+stays public, but reads a JWT if one happens to be sent, purely to identify
+the creator for the one case where visibility is gated.
+
+**Voter list: separate endpoint, not a field embedded in /results** — Voter
+identities are a strictly more sensitive piece of data than an aggregate
+count, with a narrower audience (creator only, always, regardless of
+`resultsVisibility`). Mixing that into `/results` would mean every call to
+a public endpoint has to carry branching logic for a completely different
+trust level. A separate route with its own `authMiddleware` + ownership
+check keeps the two concerns — "can you see the tally" vs. "can you see who
+voted for what" — independently auditable.
 
 ## 3. Fifteen likely interviewer questions
 
@@ -150,6 +192,35 @@ give us exactly the atomicity guarantee the voting logic depends on.
     via curl and the browser during development; a real project would add
     Jest/Supertest integration tests for the auth and voting routes.
 
+16. **Why does `/results` stay a public route instead of requiring login?**
+    Live poll results are meant to be checkable by anyone with the link,
+    which is the common case. Requiring auth there would break that for no
+    security benefit — the data isn't sensitive by default. The route reads
+    a JWT only if one is sent, purely to identify the creator for the
+    `afterClose` visibility check; it doesn't reject requests without one.
+
+17. **How do you know the creator is really the creator, on a route that
+    doesn't require login?**
+    `jwt.verify()` still runs if a token is present — it's optional to send,
+    not optional to validate. An invalid or expired token is treated the
+    same as no token (anonymous), never trusted. The actual authorization
+    decision (`isCreator = callerId === String(poll.createdBy)`) only fires
+    after that verification succeeds.
+
+18. **Could a user fake the "I'm the creator" UI state in the browser?**
+    The frontend decodes its own JWT payload (base64, not encrypted) just
+    to decide whether to render creator-only buttons like "show voter list."
+    A user could edit `localStorage` to make those buttons appear for a poll
+    they don't own, but clicking them would still hit the server's real
+    `poll.createdBy !== req.user.id` check and get a 403. The UI check is a
+    convenience, never the actual authorization boundary.
+
+19. **Why is the voter list a separate endpoint instead of a flag on `/results`?**
+    Different trust boundaries: results can be public, voter identity never
+    is. Keeping them as separate routes means the public endpoint never has
+    a code path that could leak who-voted-for-what, even by a future bug —
+    there's no branch in `/results` that touches voter emails at all.
+
 ## 4. Known limitations
 - JWTs cannot be revoked before they expire (no server-side blocklist).
 - Live results use polling, not WebSockets/SSE — simpler, but has up to 3s
@@ -162,3 +233,11 @@ give us exactly the atomicity guarantee the voting logic depends on.
 - No rate limiting on auth or vote endpoints — vulnerable to brute-force
   login attempts or vote spam from a single actor with many accounts.
 - No automated test suite beyond the concurrency script.
+- `resultsVisibility: "afterClose"` is all-or-nothing — there's no partial
+  view (e.g. "show total vote count but hide the breakdown").
+- The creator identity check on `/results` and the `isCreator` UI check both
+  rely on decoding a JWT payload that's never re-verified against a fresh
+  DB lookup of the user — fine here since JWTs already carry a verified
+  signature, but worth knowing this is "trust the token," not "trust the DB,"
+  for the lifetime of that token (max 24h).
+- No way to edit `resultsVisibility` or `showVoters` after a poll is created.

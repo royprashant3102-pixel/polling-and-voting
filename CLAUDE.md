@@ -16,11 +16,12 @@ stays short, plain, and heavily commented on the WHY, not the WHAT.
 server/
   server.js          — app setup, Mongo connect (with in-memory fallback), route mounting
   models/User.js      — email+password schema, bcrypt pre-save hook, comparePassword
-  models/Poll.js      — question/options(2-5)/expiresAt/createdBy
+  models/Poll.js      — question/options(2-5)/expiresAt/createdBy/resultsVisibility/showVoters
   models/Vote.js      — pollId/userId/option + UNIQUE compound index (pollId, userId)
   middleware/auth.js   — verifies Bearer JWT, sets req.user.id
   routes/auth.js       — POST /register, POST /login
-  routes/polls.js      — CRUD polls, POST vote (insert+catch 11000), GET results (aggregation)
+  routes/polls.js      — CRUD polls, POST vote (insert+catch 11000), GET results (aggregation,
+                          gated by resultsVisibility), GET voters (creator-only)
   .env                 — MONGO_URI, JWT_SECRET, PORT
 client/                — React (Vite) app: Auth, PollList, PollDetail pages
 server/scripts/concurrency-test.js — fires 50 parallel votes, expects 1 success + 49 conflicts
@@ -42,6 +43,16 @@ README.md, INTERVIEW_NOTES.md — setup guide + interview prep doc
 - Results use one aggregation (`$match` + `$group` with `$sum: 1`), then merge
   in options with 0 votes (aggregation omits options nobody picked).
 - Frontend polling (once built) must clear its interval on unmount.
+- expiresAt is always converted client-side to a UTC ISO string
+  (`new Date(input).toISOString()`) before being sent — never send the raw
+  `datetime-local` string, which has no timezone and is ambiguous. Display
+  uses `.toLocaleString()`, which renders in the viewer's own local time.
+- resultsVisibility ("live"/"afterClose") is checked in GET /:id/results.
+  The route stays public (no required auth) but optionally reads a JWT if
+  sent, so the creator can see their own results early without needing a
+  separate "preview" endpoint.
+- GET /:id/voters is creator-only (403 otherwise) and requires auth —
+  unlike results, this route has no legitimate anonymous use case.
 
 ## 6. Coding rules
 - Keep files under ~100 lines where possible.
@@ -73,3 +84,11 @@ README.md, INTERVIEW_NOTES.md — setup guide + interview prep doc
 - Token stored in localStorage (XSS exposure trade-off vs. httpOnly cookie).
 - No email verification on registration.
 - No rate limiting on auth or vote endpoints.
+- Client-side JWT decode (for `isCreator` checks in the UI) is read-only and
+  never trusted for authorization — the server independently re-checks
+  creator identity on every gated route. But it does mean a user could edit
+  localStorage to make the UI render creator-only buttons; those buttons
+  would just hit a 403 from the server, so nothing is actually exposed.
+- resultsVisibility "afterClose" hides aggregate counts, but does not hide
+  the fact that votes exist or how many total votes were cast if that number
+  leaks elsewhere (it currently doesn't — results are an all-or-nothing 403).
