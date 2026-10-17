@@ -17,7 +17,7 @@ stays short, plain, and heavily commented on the WHY, not the WHAT.
 server/
   server.js          — app setup, Mongo connect (with in-memory fallback), route mounting
   models/User.js      — email+password schema, bcrypt pre-save hook, comparePassword
-  models/Poll.js      — question/options(2-5)/expiresAt/createdBy/resultsVisibility/showVoters/
+  models/Poll.js      — question/options(2+, no max)/expiresAt/createdBy/resultsVisibility/showVoters/
                           visibility("public"|"linkOnly")/shareToken(unique, sparse)/closedAt.
                           Exports isPollClosed(poll), generateShareToken().
   models/Vote.js      — pollId/userId/option + UNIQUE compound index (pollId, userId)

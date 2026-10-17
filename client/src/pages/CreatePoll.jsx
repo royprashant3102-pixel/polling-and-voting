@@ -21,7 +21,11 @@ export default function CreatePoll() {
   }
 
   function addOption() {
-    if (options.length < 5) setOptions([...options, '']);
+    setOptions([...options, '']);
+  }
+
+  function removeOption(i) {
+    setOptions(options.filter((_, idx) => idx !== i));
   }
 
   async function handleCreate(e) {
@@ -67,19 +71,28 @@ export default function CreatePoll() {
           required
         />
         {options.map((opt, i) => (
-          <input
-            key={i}
-            placeholder={`Option ${i + 1}`}
-            value={opt}
-            onChange={(e) => updateOption(i, e.target.value)}
-            required
-          />
+          <div key={i} className="option-row">
+            <input
+              placeholder={`Option ${i + 1}`}
+              value={opt}
+              onChange={(e) => updateOption(i, e.target.value)}
+              required
+            />
+            {options.length > 2 && (
+              <button
+                type="button"
+                className="link"
+                onClick={() => removeOption(i)}
+                aria-label={`Remove option ${i + 1}`}
+              >
+                Remove
+              </button>
+            )}
+          </div>
         ))}
-        {options.length < 5 && (
-          <button type="button" className="link" onClick={addOption}>
-            + Add option
-          </button>
-        )}
+        <button type="button" className="link" onClick={addOption}>
+          + Add option
+        </button>
         <input
           type="datetime-local"
           value={expiresAt}

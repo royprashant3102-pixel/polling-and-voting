@@ -9,12 +9,13 @@ const pollSchema = new mongoose.Schema(
     question: { type: String, required: true },
 
     // options is an array of plain strings — e.g. ["Red", "Blue", "Green"].
-    // We validate that the array has between 2 and 5 elements.
+    // A poll needs at least 2 options to mean anything; no upper limit —
+    // the creator can add as many as they want.
     options: {
       type: [String],
       validate: {
-        validator: (arr) => arr.length >= 2 && arr.length <= 5,
-        message: 'A poll must have between 2 and 5 options',
+        validator: (arr) => arr.length >= 2,
+        message: 'A poll must have at least 2 options',
       },
     },
 
