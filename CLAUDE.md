@@ -16,19 +16,22 @@ stays short, plain, and heavily commented on the WHY, not the WHAT.
 ```
 server/
   server.js          — app setup, Mongo connect (with in-memory fallback), route mounting
-  models/User.js      — email+password schema, bcrypt pre-save hook, comparePassword
+  models/User.js      — email+password+isAdmin schema, bcrypt pre-save hook, comparePassword.
+                          isAdmin is never set by any route — flipped manually in the DB.
   models/Poll.js      — question/options(2+, no max)/expiresAt/createdBy/resultsVisibility/showVoters/
                           visibility("public"|"linkOnly")/shareToken(unique, sparse)/closedAt.
                           Exports isPollClosed(poll), generateShareToken().
   models/Vote.js      — pollId/userId/option + UNIQUE compound index (pollId, userId)
   middleware/auth.js   — verifies Bearer JWT, sets req.user.id
-  routes/auth.js       — POST /register, POST /login
+  routes/auth.js       — POST /register, POST /login, GET /me (email + isAdmin for the
+                          logged-in user — isAdmin isn't in the JWT, see design decisions)
   routes/polls.js      — CRUD polls, POST vote (upsert — first vote OR change an existing one),
                           GET my-vote (what did I vote), GET results (aggregation, gated by
                           resultsVisibility),
                           GET voters (creator-only), GET by-token/:token (linkOnly lookup),
                           POST :id/regenerate-link (creator-only), POST :id/close (creator-only,
-                          idempotent), DELETE :id (creator-only, cascades Vote.deleteMany).
+                          idempotent), POST :id/extend (creator-only, expiresAt forward-only),
+                          DELETE :id (creator OR admin, cascades Vote.deleteMany).
                           loadPollForRequest() is the one shared gate every poll-by-id route
                           goes through for linkOnly checks (creator always bypasses it).
   .env                 — MONGO_URI, JWT_SECRET, PORT
@@ -134,6 +137,21 @@ README.md, INTERVIEW_NOTES.md — setup guide + interview prep doc
   enforce it, so the creator could fetch every voter's email directly even
   for a poll created with `showVoters: false`, silently breaking the
   anonymity promise shown to voters on that poll.
+- `POST /:id/extend` only moves `expiresAt` LATER, never earlier — pulling
+  it earlier is what close-early already does, and conflating the two
+  would mean duplicate logic with different validation rules. Works even
+  if the poll is currently closed by natural expiry (extending past "now"
+  re-opens it); does NOT touch `closedAt`, so a poll the creator closed on
+  purpose stays closed even if extended — closing and expiry are
+  independent flags, same reasoning as resultsVisibility vs. closing.
+- Admin delete: `isAdmin` on `User` is never set by any route — it's
+  flipped manually, directly in the database, for whoever runs this site.
+  It's deliberately NOT embedded in the JWT (keeping the token payload
+  minimal, per the existing JWT design decision); `DELETE /:id` does one
+  extra `User.findById` lookup, scoped to that single route, only when the
+  caller isn't the poll's own creator. `GET /auth/me` lets the frontend
+  ask "am I an admin" once per page load to decide whether to show the
+  admin delete button on a poll the viewer didn't create.
 
 ## 6. Coding rules
 - Keep files under ~100 lines where possible.
@@ -197,3 +215,12 @@ README.md, INTERVIEW_NOTES.md — setup guide + interview prep doc
 - A poll creator cannot see whether a voter changed their mind (only the
   current state, via the voter list) — same "no history" limitation as
   above, just from the creator's side.
+- No "forgot password" flow — if a user loses their password, there's no
+  recovery path. A real version would need an email-sending dependency
+  (e.g. nodemailer + a provider), deliberately not added yet.
+- No admin UI for managing admins — `isAdmin` is flipped by directly
+  editing the database. There's no "promote this user" button, no admin
+  list/audit log, and no way to demote an admin from inside the app.
+- Admin delete has no audit trail — the deleted poll and its votes are
+  just gone, same as a creator's own delete. There's no log of "admin X
+  deleted poll Y, created by Z, at this time."

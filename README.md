@@ -81,9 +81,20 @@ client/   React frontend (login/register, poll list, poll detail)
 ## Creator actions on a poll
 - **Close poll early**: stops new votes immediately, regardless of
   `expiresAt`. Results and the poll itself stay viewable as before.
-- **Delete poll**: permanently removes the poll and all its votes. Both
-  actions ask for confirmation in the UI and are creator-only (403 for
-  anyone else).
+- **Extend deadline**: push `expiresAt` to a later date. Only allows
+  extending, never pulling the deadline earlier (that's what close-early
+  is for). Re-opens a poll that was closed by natural expiry, but does
+  NOT re-open a poll the creator deliberately closed early.
+- **Delete poll**: permanently removes the poll and all its votes. Creator
+  or an admin can delete; both actions ask for confirmation in the UI.
+
+## Admin
+A user can be made an admin by setting `isAdmin: true` directly on their
+`User` document in the database — there's no in-app flow to grant this.
+An admin can delete any poll, not just ones they created, via the same
+`DELETE /api/polls/:id` route (one extra server-side check: creator OR
+admin). `GET /api/auth/me` returns the logged-in user's `isAdmin` status so
+the frontend knows whether to show the admin delete option.
 
 ## Voting
 A voter can change their mind any time before the poll closes — voting

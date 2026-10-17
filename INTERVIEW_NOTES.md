@@ -553,6 +553,58 @@ here, but the pattern should hold for anything).
     checked against the database, not inferred from "well, the button that
     calls this is conditionally rendered."
 
+35. **Why is "extend deadline" a separate route instead of letting the
+    creator PATCH `expiresAt` directly, any direction?**
+    Two reasons. First, pulling a deadline *earlier* already has a
+    dedicated, well-defined action: close-early, which sets `closedAt`
+    rather than mutating `expiresAt` at all — letting `expiresAt` also
+    move backward would create two different ways to "close" a poll with
+    different side effects, which is exactly the kind of duplicate-logic
+    situation `isPollClosed()` was built to avoid. Second, an unrestricted
+    PATCH on `expiresAt` has no natural validation boundary — "any new
+    date" includes nonsense like setting it to a date in the past (which
+    is just close-early with extra steps) or far enough in the future to
+    be meaningless. Scoping the route to "forward only" makes the
+    validation trivial and the intent explicit in the route name.
+
+36. **Why didn't extending the deadline just un-close a poll that was
+    closed early?**
+    Because `closedAt` and `expiresAt` represent different decisions.
+    `expiresAt` is "when does this poll naturally end" — a date, set once
+    at creation, extendable. `closedAt` is "the creator decided to end
+    this early, on purpose" — a deliberate action with its own
+    confirmation dialog in the UI. If extending `expiresAt` silently
+    un-closed a poll, a creator who closed a poll on purpose (maybe
+    because of an abusive vote, or because they got the answer they
+    needed) could have it reopened as an unintended side effect of
+    fixing the deadline on an unrelated, still-open poll they're managing
+    at the same time. Keeping them independent means each action only
+    does the one thing it says it does.
+
+37. **Why isn't `isAdmin` just added to the JWT payload like `userId`?**
+    The JWT payload is deliberately minimal — `{ userId }` only — a
+    design decision made from the start of this project, so the token
+    stays small and nothing beyond identity needs to be re-signed if it
+    changes. Admin status is exactly the kind of thing that *can* change
+    while a user's existing token is still valid (promoted or demoted
+    mid-session), and embedding it in the JWT would mean that change
+    doesn't take effect until the user logs in again — a confusing,
+    silent staleness. Instead, `isAdmin` is looked up fresh from the
+    database, but only on the routes that actually need it (`DELETE /:id`
+    when the caller isn't the poll's creator, and `GET /auth/me` for the
+    frontend), not on every authenticated request — so the "small, fast
+    JWT" property is preserved everywhere else.
+
+38. **How is someone actually made an admin?**
+    There's no API route for it — `isAdmin` is flipped by directly
+    editing the `User` document in the database (e.g. a one-off script
+    run by whoever operates the server). This is intentional for a small
+    app with one operator: a self-service "become admin" endpoint would
+    obviously need its own strict authorization, and building that for a
+    single-operator app is complexity with no payoff. A larger app would
+    need an actual admin-management UI and audit trail; this one
+    explicitly doesn't have one yet (see known limitations).
+
 ## 4. Known limitations
 - JWTs cannot be revoked before they expire (no server-side blocklist).
 - Live results use polling, not WebSockets/SSE — simpler, but has up to 3s
@@ -604,3 +656,14 @@ here, but the pattern should hold for anything).
   original path, but if they then manually navigate elsewhere and get
   logged out again, the "from" state from the first bounce is gone —
   there's no persistent "return to this later" beyond a single redirect.
+- No "forgot password" flow — no recovery path for a lost password. A
+  real one needs an email-sending dependency (nodemailer + a provider),
+  deliberately left out of this project's scope.
+- No admin management UI — `isAdmin` is flipped by hand, directly in the
+  database. No "promote this user" button, no list of current admins, no
+  way to demote one from inside the app.
+- Admin deletes have no audit trail, same as a creator's own delete —
+  just gone, with no log of who deleted what poll or when.
+- `extend` has no upper bound either — a creator could extend a poll's
+  deadline to a date far enough in the future to be effectively
+  permanent, same "no cap" philosophy as the unlimited options list.

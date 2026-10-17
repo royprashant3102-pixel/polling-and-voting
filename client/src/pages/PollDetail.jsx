@@ -24,6 +24,11 @@ export default function PollDetail() {
   // Sent as 'x-share-token' on every request once this page is reached via
   // /p/:token, or once we've loaded a poll and learned it's linkOnly.
   const [shareToken, setShareToken] = useState(tokenParam || null);
+  // isAdmin isn't in the JWT (kept minimal, same reasoning as the server's
+  // comment on this tradeoff) — fetched once from /api/auth/me instead, so
+  // admins can see a delete option on polls they didn't create.
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [extendTo, setExtendTo] = useState('');
 
   // Decode the JWT payload (not verify — the server already does that) just
   // to compare userId against poll.createdBy, so we know whether to show
@@ -55,6 +60,10 @@ export default function PollDetail() {
       });
     }
   }, [tokenParam]);
+
+  useEffect(() => {
+    api.get('/auth/me').then((res) => setIsAdmin(res.data.isAdmin)).catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!id) return;
@@ -158,6 +167,19 @@ export default function PollDetail() {
     api.delete(`/polls/${id}`, authHeaders()).then(() => navigate('/polls'));
   }
 
+  function extendDeadline(e) {
+    e.preventDefault();
+    setMessage('');
+    api
+      .post(`/polls/${id}/extend`, { expiresAt: new Date(extendTo).toISOString() }, authHeaders())
+      .then((res) => {
+        setPoll(res.data);
+        setExtendTo('');
+        setMessage('Deadline extended!');
+      })
+      .catch((err) => setMessage(err.response?.data?.error || 'Could not extend deadline.'));
+  }
+
   return (
     <div className="poll-layout">
       <div className="poll-main card">
@@ -235,6 +257,19 @@ export default function PollDetail() {
             <button type="button" onClick={deletePoll}>Delete poll</button>
           </div>
 
+          <form onSubmit={extendDeadline}>
+            <label>
+              Extend deadline to:
+              <input
+                type="datetime-local"
+                value={extendTo}
+                onChange={(e) => setExtendTo(e.target.value)}
+                required
+              />
+            </label>
+            <button type="submit">Extend</button>
+          </form>
+
           {poll.visibility === 'linkOnly' && (
             <div>
               <p className="muted">Anyone with this link can view and vote — share carefully.</p>
@@ -264,6 +299,15 @@ export default function PollDetail() {
           ) : (
             <p className="muted">Voter list is off for this poll.</p>
           )}
+        </div>
+      )}
+
+      {/* Admin moderation: deleting someone else's poll, not shown in the
+          normal creator panel above since isCreator is false here. */}
+      {isAdmin && !isCreator && (
+        <div className="creator-panel">
+          <h3>Admin</h3>
+          <button type="button" onClick={deletePoll}>Delete poll (admin)</button>
         </div>
       )}
     </div>

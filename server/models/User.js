@@ -6,6 +6,12 @@ const userSchema = new mongoose.Schema({
   // unique: true creates a MongoDB unique index → no two users share an email
   email: { type: String, required: true, unique: true, lowercase: true },
   password: { type: String, required: true },
+
+  // isAdmin: no registration flow sets this — it's flipped manually (e.g.
+  // directly in the DB) for whoever runs this site, not something a user
+  // can grant themselves through the app. Admins can delete any poll, not
+  // just ones they created, for removing content without a reporting system.
+  isAdmin: { type: Boolean, default: false },
 });
 
 // ---------- Pre-save hook: hash password before writing to DB ----------

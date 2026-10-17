@@ -1,6 +1,7 @@
 const router = require('express').Router();
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const auth = require('../middleware/auth');
 
 // ---------- POST /api/auth/register ----------
 // Creates a new user. The pre-save hook in User.js hashes the password.
@@ -51,6 +52,20 @@ router.post('/login', async (req, res) => {
     });
 
     res.json({ token, userId: user._id });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------- GET /api/auth/me — who am I, and am I an admin? ----------
+// isAdmin deliberately isn't in the JWT (the token stays minimal, per the
+// existing design — see routes/polls.js's comment on the same tradeoff),
+// so the frontend asks here instead of decoding it from the token.
+router.get('/me', auth, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id, 'email isAdmin');
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    res.json({ email: user.email, isAdmin: user.isAdmin });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

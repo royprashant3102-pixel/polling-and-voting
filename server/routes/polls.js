@@ -3,6 +3,7 @@ const jwt = require('jsonwebtoken');
 const Poll = require('../models/Poll');
 const { isPollClosed } = Poll;
 const Vote = require('../models/Vote');
+const User = require('../models/User');
 const auth = require('../middleware/auth');
 
 // Reads whoever the JWT (if any) says the caller is, WITHOUT requiring one.
@@ -279,6 +280,41 @@ router.post('/:id/regenerate-link', auth, async (req, res) => {
   }
 });
 
+// ---------- POST /api/polls/:id/extend — push expiresAt later (creator-only) ----------
+// Only allows moving the deadline LATER, never earlier — pulling it
+// earlier is what close-early already does, and conflating the two would
+// mean this route could also be used to close a poll, duplicating that
+// logic with different validation. Works even if the poll is currently
+// closed by natural expiry (extending past "now" makes it open again);
+// does NOT un-close a poll the creator closed early on purpose — closedAt
+// is a separate, deliberate flag this route never touches.
+router.post('/:id/extend', auth, async (req, res) => {
+  try {
+    const poll = await loadPollForRequest(req, res);
+    if (!poll) return;
+
+    if (String(poll.createdBy) !== req.user.id) {
+      return res.status(403).json({ error: 'Only the poll creator can extend this poll' });
+    }
+
+    const { expiresAt } = req.body;
+    if (isNaN(Date.parse(expiresAt))) {
+      return res.status(400).json({ error: 'expiresAt must be a valid date' });
+    }
+    const newExpiry = new Date(expiresAt);
+    if (newExpiry <= poll.expiresAt) {
+      return res.status(400).json({ error: 'New expiry must be later than the current one' });
+    }
+
+    poll.expiresAt = newExpiry;
+    await poll.save();
+
+    res.json(poll);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ---------- POST /api/polls/:id/close — close a poll early (creator-only) ----------
 // Sets closedAt to now; isPollClosed() then reports the poll as closed
 // regardless of expiresAt. Closing an already-closed poll is a no-op that
@@ -303,16 +339,22 @@ router.post('/:id/close', auth, async (req, res) => {
   }
 });
 
-// ---------- DELETE /api/polls/:id — delete a poll (creator-only) ----------
+// ---------- DELETE /api/polls/:id — delete a poll (creator OR admin) ----------
 // Also deletes the poll's votes so none are left orphaned, pointing at a
-// pollId that no longer resolves to anything.
+// pollId that no longer resolves to anything. isAdmin isn't in the JWT
+// (the token stays minimal, per the existing design) — this is the one
+// extra DB lookup, scoped to this single route, not every request.
 router.delete('/:id', auth, async (req, res) => {
   try {
     const poll = await loadPollForRequest(req, res);
     if (!poll) return;
 
-    if (String(poll.createdBy) !== req.user.id) {
-      return res.status(403).json({ error: 'Only the poll creator can delete this poll' });
+    const isOwner = String(poll.createdBy) === req.user.id;
+    if (!isOwner) {
+      const caller = await User.findById(req.user.id, 'isAdmin');
+      if (!caller?.isAdmin) {
+        return res.status(403).json({ error: 'Only the poll creator or an admin can delete this poll' });
+      }
     }
 
     await Vote.deleteMany({ pollId: poll._id });
