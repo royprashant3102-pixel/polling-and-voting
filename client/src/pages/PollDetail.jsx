@@ -2,8 +2,12 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import api from '../api';
 
+// Handles both /polls/:id (normal polls, reached by JWT + public access)
+// and /p/:token (linkOnly polls, reached only by the share token). The
+// share token — once known — is attached as 'x-share-token' on every call
+// this page makes, which is what requireAccess on the server checks.
 export default function PollDetail() {
-  const { id } = useParams();
+  const { id: idParam, token: tokenParam } = useParams();
   const [poll, setPoll] = useState(null);
   const [results, setResults] = useState(null);
   const [resultsHidden, setResultsHidden] = useState(false);
@@ -13,6 +17,12 @@ export default function PollDetail() {
   // (GET /my-vote) rather than kept only in local state — so the highlight
   // survives a page refresh or logging in again on another device.
   const [myVote, setMyVote] = useState(null);
+  // The poll's actual Mongo _id, once known — for /p/:token we only have
+  // the token at first, and learn the _id from GET /by-token/:token.
+  const [id, setId] = useState(idParam || null);
+  // Sent as 'x-share-token' on every request once this page is reached via
+  // /p/:token, or once we've loaded a poll and learned it's linkOnly.
+  const [shareToken, setShareToken] = useState(tokenParam || null);
 
   // Decode the JWT payload (not verify — the server already does that) just
   // to compare userId against poll.createdBy, so we know whether to show
@@ -28,18 +38,43 @@ export default function PollDetail() {
     }
   }
 
+  // Every call this page makes includes the share token (if we have one) as
+  // a header — a no-op for normal public polls, required for /p/:token ones.
+  function authHeaders() {
+    return shareToken ? { headers: { 'x-share-token': shareToken } } : {};
+  }
+
+  // /p/:token arrives with only the token, not the poll's _id — resolve it
+  // via by-token first, which also tells us the real _id for later calls.
   useEffect(() => {
-    api.get(`/polls/${id}`).then((res) => setPoll(res.data));
-    api.get(`/polls/${id}/my-vote`).then((res) => setMyVote(res.data.option));
+    if (tokenParam) {
+      api.get(`/polls/by-token/${tokenParam}`).then((res) => {
+        setId(res.data._id);
+        setPoll(res.data);
+      });
+    }
+  }, [tokenParam]);
+
+  useEffect(() => {
+    if (!id) return;
+    api.get(`/polls/${id}`, authHeaders()).then((res) => {
+      setPoll(res.data);
+      // Keep shareToken in sync with what the server has (e.g. after the
+      // creator regenerates it), not just whatever came in via the URL.
+      if (res.data.shareToken) setShareToken(res.data.shareToken);
+    });
+    api.get(`/polls/${id}/my-vote`, authHeaders()).then((res) => setMyVote(res.data.option));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   // Live updates: poll the results endpoint every 3 seconds instead of
   // WebSockets/SSE — far less code for a feature that just needs "close to
   // real-time", and this project has no need for push-on-every-vote latency.
   useEffect(() => {
+    if (!id) return;
     function fetchResults() {
       api
-        .get(`/polls/${id}/results`)
+        .get(`/polls/${id}/results`, authHeaders())
         .then((res) => {
           setResults(res.data);
           setResultsHidden(false);
@@ -52,12 +87,13 @@ export default function PollDetail() {
     fetchResults();
     const interval = setInterval(fetchResults, 3000);
     return () => clearInterval(interval); // must clear on unmount or it keeps firing after we navigate away
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   async function vote(option) {
     setMessage('');
     try {
-      await api.post(`/polls/${id}/vote`, { option });
+      await api.post(`/polls/${id}/vote`, { option }, authHeaders());
       setMessage('Vote recorded!');
       setMyVote(option);
     } catch (err) {
@@ -87,7 +123,20 @@ export default function PollDetail() {
   }
 
   function loadVoters() {
-    api.get(`/polls/${id}/voters`).then((res) => setVoters(res.data));
+    api.get(`/polls/${id}/voters`, authHeaders()).then((res) => setVoters(res.data));
+  }
+
+  function copyLink() {
+    const url = `${window.location.origin}/p/${shareToken}`;
+    navigator.clipboard.writeText(url);
+    setMessage('Link copied!');
+  }
+
+  function regenerateLink() {
+    api.post(`/polls/${id}/regenerate-link`).then((res) => {
+      setShareToken(res.data.shareToken);
+      setMessage('Link regenerated — the old link no longer works.');
+    });
   }
 
   return (
@@ -98,6 +147,7 @@ export default function PollDetail() {
             {closed ? 'Closed' : 'Open'}
           </span>
           {!closed && <span className="badge badge-time">{timeLeftLabel()}</span>}
+          {poll.visibility === 'linkOnly' && <span className="badge badge-link">Link only</span>}
         </div>
 
         <h1>{poll.question}</h1>
@@ -147,6 +197,15 @@ export default function PollDetail() {
       {isCreator && (
         <div className="creator-panel">
           <h3>Creator view</h3>
+
+          {poll.visibility === 'linkOnly' && (
+            <div>
+              <p className="muted">Anyone with this link can view and vote — share carefully.</p>
+              <button type="button" onClick={copyLink}>Copy link</button>
+              <button type="button" onClick={regenerateLink}>Regenerate link</button>
+            </div>
+          )}
+
           {poll.showVoters ? (
             <>
               <p>Voters can see this notice: "The creator of this poll can see who voted."</p>

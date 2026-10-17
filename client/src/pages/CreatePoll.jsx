@@ -10,6 +10,7 @@ export default function CreatePoll() {
   const [expiresAt, setExpiresAt] = useState('');
   const [resultsVisibility, setResultsVisibility] = useState('live');
   const [showVoters, setShowVoters] = useState(false);
+  const [visibility, setVisibility] = useState('public');
   const [error, setError] = useState('');
   const navigate = useNavigate();
 
@@ -37,8 +38,15 @@ export default function CreatePoll() {
         expiresAt: new Date(expiresAt).toISOString(),
         resultsVisibility,
         showVoters,
+        visibility,
       });
-      navigate(`/polls/${res.data._id}`); // jump straight to the new poll
+      // linkOnly polls have no public /polls/:id route — only the share
+      // link (/p/:token) works, since that's the whole point of the feature.
+      if (res.data.visibility === 'linkOnly') {
+        navigate(`/p/${res.data.shareToken}`);
+      } else {
+        navigate(`/polls/${res.data._id}`);
+      }
     } catch (err) {
       if (err.response?.status === 401) {
         setError('You must be logged in to create a poll');
@@ -81,6 +89,10 @@ export default function CreatePoll() {
         <select value={resultsVisibility} onChange={(e) => setResultsVisibility(e.target.value)}>
           <option value="live">Show results live</option>
           <option value="afterClose">Hide results until poll closes</option>
+        </select>
+        <select value={visibility} onChange={(e) => setVisibility(e.target.value)}>
+          <option value="public">Public — anyone can find it in the poll list</option>
+          <option value="linkOnly">Link only — hidden from the list, reachable only by link</option>
         </select>
         <label className="checkbox-label">
           <input

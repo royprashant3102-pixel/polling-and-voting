@@ -45,6 +45,14 @@ export default function App() {
               </RequireAuth>
             }
           />
+          <Route
+            path="/p/:token"
+            element={
+              <RequireAuth>
+                <PollDetail />
+              </RequireAuth>
+            }
+          />
         </Routes>
       </div>
     </>

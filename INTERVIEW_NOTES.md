@@ -50,6 +50,23 @@ UI is plain CSS with design tokens, no UI library.
    itself) to highlight the user's own bar — so the highlight is correct
    after a refresh, not just immediately after clicking vote.
 
+**Link-only poll access (every poll-by-id route)**
+1. Every route that loads a poll by `:id` — get, vote, my-vote, results,
+   voters — calls one shared `requireAccess(req, res)` helper first instead
+   of `Poll.findById` directly.
+2. `requireAccess` loads the poll; if missing, 404. If the poll's
+   `visibility` is `"linkOnly"`, it also requires a matching token sent as
+   either the `x-share-token` header or a `?token=` query param — if that
+   token is missing or wrong, 404 again (never 403).
+3. `GET /api/polls/by-token/:token` is the one entry point that doesn't need
+   the Mongo `_id` at all — it looks the poll up by `shareToken` directly,
+   which is how the frontend's `/p/:token` route resolves a poll it only
+   has the token for.
+4. `POST /api/polls/:id/regenerate-link` is creator-only (checked via JWT,
+   not the token) and overwrites `shareToken` with a new
+   `crypto.randomBytes(16).toString('hex')` value — the old token is simply
+   gone, not kept as a second valid value, so it 404s on the very next request.
+
 ## 2. Why I chose this
 
 **Unique index vs. check-then-insert** — Check-then-insert (`findOne` then
@@ -138,6 +155,35 @@ has sufficient contrast against both the white card background and the
 accent/yellow fills), and moves the "your vote" indicator into its own
 small pill with its own background — a self-contained element that's never
 relying on what's behind it for contrast.
+
+**Link-only polls: 404, not 403, and one shared gate function** — Two
+decisions here, both load-bearing:
+
+First, every denial for a wrong/missing token on a linkOnly poll returns
+404, matching "poll doesn't exist," rather than 403 ("exists, but you can't
+see it"). A 403 is itself a leak: it tells an attacker guessing IDs that
+*this specific _id* is a real, hidden poll, even without the token — now
+they know where to focus a brute-force attempt on the token. A uniform 404
+makes "wrong ID" and "right ID, wrong token" indistinguishable from outside.
+
+Second, the check lives in exactly one function, `requireAccess`, and every
+route that loads a poll by `:id` calls it instead of `Poll.findById`
+directly. The alternative — repeating an `if (poll.visibility ===
+'linkOnly' && token !== poll.shareToken)` block in five different routes —
+is the classic way this kind of check gets accidentally skipped on a sixth
+route added later. Centralizing it means adding a new poll-by-id route is
+either "call requireAccess" (correct by construction) or a visible, obvious
+omission in review, not a silent gap.
+
+**IDOR risk, named explicitly** — This whole feature is an IDOR (Insecure
+Direct Object Reference) mitigation pattern turned into the actual access
+control: normally you'd worry about an attacker swapping `:id` in a URL to
+reach someone else's resource; here, `shareToken` is deliberately the
+*only* legitimate way to reach a linkOnly poll by design, not a bug to fix.
+That only holds up because the token is unguessable — 16 bytes from
+`crypto.randomBytes`, never a counter or anything derived from the poll's
+`_id` or creation time. If it were guessable, every linkOnly poll would be
+exactly as exposed as a public one, just with extra steps.
 
 ## 3. Fifteen likely interviewer questions
 
@@ -277,6 +323,42 @@ relying on what's behind it for contrast.
     background, the yellow bar, and the accent bar — so correctness doesn't
     depend on fill percentage at all.
 
+22. **Why 404 instead of 403 when someone hits a link-only poll without
+    the right token?**
+    403 means "I know this exists, but no." That's itself information
+    leakage for a feature whose entire point is that the poll's existence
+    is secret to anyone without the link — a 403 confirms the `_id` is real
+    and worth attacking further (e.g. brute-forcing the token). 404 makes
+    "this ID doesn't exist" and "this ID exists but you lack the token"
+    indistinguishable from the outside.
+
+23. **What stops someone from just guessing shareTokens?**
+    The token is 16 bytes (128 bits) from `crypto.randomBytes`, rendered as
+    32 hex characters — cryptographically random, not sequential or
+    derived from anything predictable like the poll's `_id` or creation
+    time. Brute-forcing that keyspace is infeasible at any practical rate
+    a server would allow. This *is* the access control, not a convenience
+    on top of one — see the IDOR discussion above.
+
+24. **Why does `regenerate-link` use `Poll.findById` instead of the shared
+    `requireAccess` helper?**
+    `requireAccess` is for "can this caller reach this poll" — correct for
+    reads/votes, but wrong here: regeneration exists specifically so a
+    creator who's *lost* their current token can still get a new one.
+    Gating it on already holding a valid token would make that impossible.
+    Authorization for this route comes entirely from the JWT (`poll.createdBy
+    === req.user.id`), not from token possession.
+
+25. **Is "link only" real privacy/security, or just obscurity?**
+    Honestly, closer to obscurity with a cryptographically strong secret —
+    anyone who legitimately has the link can always re-share it, and the
+    server has no way to distinguish an authorized viewer from someone they
+    forwarded it to. It's "not discoverable and not guessable," which is a
+    real and useful property (keeps it out of search, off the public list,
+    safe from ID-enumeration attacks), but it is not the same guarantee as
+    per-user access control — there's no login-gated allowlist of who's
+    permitted to view it.
+
 ## 4. Known limitations
 - JWTs cannot be revoked before they expire (no server-side blocklist).
 - Live results use polling, not WebSockets/SSE — simpler, but has up to 3s
@@ -297,3 +379,14 @@ relying on what's behind it for contrast.
   signature, but worth knowing this is "trust the token," not "trust the DB,"
   for the lifetime of that token (max 24h).
 - No way to edit `resultsVisibility` or `showVoters` after a poll is created.
+- Link-only polls rely on "anyone with the link can view and vote" — the
+  server has no way to tell a legitimate recipient from someone the
+  creator's link was forwarded to without permission. Regenerating the
+  link is the only recourse once a link leaks further than intended.
+- The shareToken is the entire access-control mechanism for a linkOnly
+  poll, so its unguessability (16 random bytes) is doing real security
+  work, not just acting as a nicer-looking ID — worth being explicit about
+  rather than treating "hidden from the list" as equivalent to "protected."
+- No way to switch a poll between public and linkOnly after creation, or
+  to set an explicit "only these emails can vote" allowlist — link-only is
+  possession-based access, not identity-based.

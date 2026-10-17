@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const crypto = require('crypto');
 
 // ---------- Poll schema ----------
 // Each poll has a question, an array of option strings, an expiry date,
@@ -42,9 +43,40 @@ const pollSchema = new mongoose.Schema(
     // GET /:id/voters. Voters are shown a notice at creation time so they
     // know their vote won't be anonymous.
     showVoters: { type: Boolean, default: false },
+
+    // visibility: "public" (default) appears in GET /polls and is reachable
+    // by _id. "linkOnly" is hidden from the list entirely and can only be
+    // reached with the matching shareToken — see routes/polls.js's
+    // requireAccess helper, which every poll-loading route goes through.
+    visibility: {
+      type: String,
+      enum: ['public', 'linkOnly'],
+      default: 'public',
+    },
+
+    // shareToken: only set for linkOnly polls. `sparse: true` means the
+    // unique index ignores documents where this field is absent (every
+    // "public" poll) — otherwise two public polls, both missing the field,
+    // would collide on a plain unique index (which treats two nulls as
+    // a duplicate).
+    shareToken: {
+      type: String,
+      unique: true,
+      sparse: true,
+    },
   },
   // timestamps: true → Mongoose auto-adds createdAt and updatedAt fields
   { timestamps: true }
 );
 
-module.exports = mongoose.model('Poll', pollSchema);
+// Generates a new random token for a linkOnly poll's shareable link.
+// crypto.randomBytes is cryptographically secure — unlike Math.random(),
+// it can't be predicted, which matters here since the token IS the access
+// control for the poll (anyone holding it can view/vote).
+function generateShareToken() {
+  return crypto.randomBytes(16).toString('hex');
+}
+
+const Poll = mongoose.model('Poll', pollSchema);
+module.exports = Poll;
+module.exports.generateShareToken = generateShareToken;

@@ -167,6 +167,7 @@ input[type="checkbox"] {
 .badge-open { background: var(--badge-green); }
 .badge-closed { background: var(--badge-grey); }
 .badge-time { background: var(--badge-yellow); }
+.badge-link { background: var(--panel-blue); }
 
 /* ---------- Poll list ---------- */
 .poll-row {

@@ -39,6 +39,16 @@ npm run concurrency
 Fires 50 parallel vote requests from the same user and prints how many
 succeeded (201) vs. were rejected as duplicates (409). Expected: 1 and 49.
 
+### 4. Link-only poll proof script
+With the server already running:
+```bash
+cd server
+npm run linkonly-test
+```
+Creates a link-only poll and checks: it's absent from the public list,
+fetching it by `_id` with no token 404s, fetching with the right token
+200s, and the old token 404s immediately after regenerating the link.
+
 ## Environment variables (`server/.env`)
 See `server/.env.example`:
 - `MONGO_URI` — MongoDB connection string
@@ -58,3 +68,8 @@ client/   React frontend (login/register, poll list, poll detail)
 - **Voter list**: an optional checkbox lets the creator see who voted for
   what (email + chosen option) after creation, via a button on the poll page.
   Voters are shown a notice that their vote isn't anonymous when this is on.
+- **Visibility**: "Public" (default, appears in the poll list) or "Link only"
+  (hidden from the list entirely, reachable only via its share link at
+  `/p/:token`). The creator can copy the link or regenerate it — regenerating
+  invalidates the old link immediately. See INTERVIEW_NOTES.md for the IDOR
+  risk this relies on and its limitation (anyone with the link can share it).

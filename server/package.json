@@ -5,7 +5,8 @@
   "main": "server.js",
   "scripts": {
     "dev": "node server.js",
-    "concurrency": "node scripts/concurrency-test.js"
+    "concurrency": "node scripts/concurrency-test.js",
+    "linkonly-test": "node scripts/linkonly-test.js"
   },
   "dependencies": {
     "bcrypt": "^5.1.1",

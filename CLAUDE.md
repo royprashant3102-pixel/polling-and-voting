@@ -17,17 +17,22 @@ stays short, plain, and heavily commented on the WHY, not the WHAT.
 server/
   server.js          — app setup, Mongo connect (with in-memory fallback), route mounting
   models/User.js      — email+password schema, bcrypt pre-save hook, comparePassword
-  models/Poll.js      — question/options(2-5)/expiresAt/createdBy/resultsVisibility/showVoters
+  models/Poll.js      — question/options(2-5)/expiresAt/createdBy/resultsVisibility/showVoters/
+                          visibility("public"|"linkOnly")/shareToken(unique, sparse)
   models/Vote.js      — pollId/userId/option + UNIQUE compound index (pollId, userId)
   middleware/auth.js   — verifies Bearer JWT, sets req.user.id
   routes/auth.js       — POST /register, POST /login
   routes/polls.js      — CRUD polls, POST vote (insert+catch 11000), GET my-vote (what did I
                           vote), GET results (aggregation, gated by resultsVisibility),
-                          GET voters (creator-only)
+                          GET voters (creator-only), GET by-token/:token (linkOnly lookup),
+                          POST :id/regenerate-link (creator-only). requireAccess() is the one
+                          shared gate every poll-by-id route goes through for linkOnly checks.
   .env                 — MONGO_URI, JWT_SECRET, PORT
 client/                — React (Vite) app: Auth (/login), PollList (/polls),
-                          CreatePoll (/polls/new), PollDetail (/polls/:id)
+                          CreatePoll (/polls/new), PollDetail (/polls/:id and /p/:token)
 server/scripts/concurrency-test.js — fires 50 parallel votes, expects 1 success + 49 conflicts
+server/scripts/linkonly-test.js — list-exclusion, 404-without-token, 200-with-token,
+                          404-after-regenerate
 README.md, INTERVIEW_NOTES.md — setup guide + interview prep doc
 ```
 
@@ -66,6 +71,16 @@ README.md, INTERVIEW_NOTES.md — setup guide + interview prep doc
   label over a white background, so a fixed white color fails contrast
   there. "Your vote" is shown as a small accent-colored pill next to the
   label instead of changing the label's own text color.
+- Link-only polls: a 404 (never 403) is returned for a missing/wrong
+  shareToken on a linkOnly poll, on every route — a 403 would confirm the
+  poll's existence to someone without the link, defeating the feature.
+  This check lives in ONE shared helper, requireAccess(), which every route
+  that loads a poll by :id calls — so a future new route can't forget it.
+  GET /polls excludes linkOnly polls outright (not just "no link shown" —
+  actually absent from the response). regenerate-link uses Poll.findById
+  directly (not requireAccess), since the creator must be able to recover
+  access even after losing their current token — their identity comes from
+  the JWT, not from already holding a valid link.
 
 ## 6. Coding rules
 - Keep files under ~100 lines where possible.
@@ -105,3 +120,14 @@ README.md, INTERVIEW_NOTES.md — setup guide + interview prep doc
 - resultsVisibility "afterClose" hides aggregate counts, but does not hide
   the fact that votes exist or how many total votes were cast if that number
   leaks elsewhere (it currently doesn't — results are an all-or-nothing 403).
+- Link-only polls are "security through possession of a URL," not real
+  access control: anyone holding the link can view and vote, and can
+  forward it to anyone else — the server has no way to tell a legitimate
+  recipient from someone the link was shared with without permission.
+  Regenerating the link is the only recourse once that happens.
+- The shareToken itself is the entire IDOR defense for a linkOnly poll:
+  if it were short, sequential, or guessable, an attacker could enumerate
+  tokens and reach "hidden" polls directly. 16 random bytes (32 hex chars)
+  from crypto.randomBytes makes brute-forcing infeasible, but this is worth
+  being explicit about rather than assuming "it's hidden" is the same as
+  "it's protected."
