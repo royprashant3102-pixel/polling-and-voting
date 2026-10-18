@@ -17,7 +17,12 @@ model answers.
 - **Voting**: cast a vote, or change it any time before the poll closes —
   race-safe under concurrent requests, proven by an automated test
 - **Live results**: percentage bars that refresh every 3 seconds, with your
-  own vote highlighted
+  own vote highlighted — clicking any option both votes and shows its bar
+  in the same row
+- **Winner banner**: once a poll closes, a clear "🏆 Winner: X (N%)" banner
+  appears, or "Tie between: X, Y" if two or more options share the top spot
+- **Share**: a Share button on every poll, for anyone viewing it — uses the
+  native share sheet on mobile, falls back to copy-to-clipboard
 - **Results visibility**: show results live, or hide them from everyone but
   the creator until the poll closes
 - **Voter list**: optionally let the creator see who voted for what
