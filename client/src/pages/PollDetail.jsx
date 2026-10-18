@@ -167,6 +167,17 @@ export default function PollDetail() {
   const closed = poll.closedAt != null || new Date() > new Date(poll.expiresAt);
   const totalVotes = results ? results.results.reduce((sum, r) => sum + r.count, 0) : 0;
 
+  // Winner(s) once the poll is closed — an array because a tie means more
+  // than one option shares the highest count, and silently picking just
+  // one would misreport the actual result.
+  const winners =
+    closed && results && totalVotes > 0
+      ? (() => {
+          const max = Math.max(...results.results.map((r) => r.count));
+          return results.results.filter((r) => r.count === max).map((r) => r.option);
+        })()
+      : [];
+
   // Human-readable "time left" for the badge — small, local calc, no new data.
   function timeLeftLabel() {
     if (closed) return 'Closed';
@@ -253,6 +264,14 @@ export default function PollDetail() {
         </div>
 
         <h1>{poll.question}</h1>
+
+        {closed && !resultsHidden && winners.length > 0 && (
+          <p className="winner-banner">
+            {winners.length === 1
+              ? `🏆 Winner: ${winners[0]} (${Math.round((results.results.find((r) => r.option === winners[0]).count / totalVotes) * 100)}%)`
+              : `🏆 Tie between: ${winners.join(', ')}`}
+          </p>
+        )}
 
         {poll.showVoters && (
           <p className="muted">The creator of this poll can see who voted.</p>

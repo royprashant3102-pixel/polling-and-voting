@@ -173,6 +173,17 @@ input[type="checkbox"] {
   font-size: 0.9rem;
 }
 
+.winner-banner {
+  background: var(--accent);
+  color: #fff;
+  border: var(--border);
+  border-radius: var(--radius-input);
+  padding: 0.75rem;
+  font-weight: 700;
+  font-size: 1.05rem;
+  margin: 0.75rem 0;
+}
+
 .poll-top-row {
   display: flex;
   justify-content: space-between;
