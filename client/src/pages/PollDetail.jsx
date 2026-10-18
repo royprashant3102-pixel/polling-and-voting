@@ -159,6 +159,27 @@ export default function PollDetail() {
     setMessage('Link copied!');
   }
 
+  // General share for ANY poll, available to anyone viewing it — not just
+  // the creator, and not just linkOnly polls (copyLink above is specific
+  // to the creator's share-token link). A public poll's shareable URL is
+  // just its own page; a linkOnly poll's is /p/:token, since /polls/:id
+  // isn't reachable without the token.
+  function sharePoll() {
+    const url =
+      poll.visibility === 'linkOnly'
+        ? `${window.location.origin}/p/${shareToken}`
+        : window.location.href;
+
+    // navigator.share is the native OS share sheet (mobile browsers,
+    // some desktop ones) — falls back to clipboard where it's unavailable.
+    if (navigator.share) {
+      navigator.share({ title: poll.question, url }).catch(() => {});
+    } else {
+      navigator.clipboard.writeText(url);
+      setMessage('Link copied!');
+    }
+  }
+
   function regenerateLink() {
     api.post(`/polls/${id}/regenerate-link`).then((res) => {
       setShareToken(res.data.shareToken);
@@ -192,12 +213,15 @@ export default function PollDetail() {
   return (
     <div className="poll-layout">
       <div className="poll-main card">
-        <div>
-          <span className={`badge ${closed ? 'badge-closed' : 'badge-open'}`}>
-            {closed ? 'Closed' : 'Open'}
-          </span>
-          {!closed && <span className="badge badge-time">{timeLeftLabel()}</span>}
-          {poll.visibility === 'linkOnly' && <span className="badge badge-link">Link only</span>}
+        <div className="poll-top-row">
+          <div>
+            <span className={`badge ${closed ? 'badge-closed' : 'badge-open'}`}>
+              {closed ? 'Closed' : 'Open'}
+            </span>
+            {!closed && <span className="badge badge-time">{timeLeftLabel()}</span>}
+            {poll.visibility === 'linkOnly' && <span className="badge badge-link">Link only</span>}
+          </div>
+          <button type="button" className="link" onClick={sharePoll}>Share</button>
         </div>
 
         <h1>{poll.question}</h1>
