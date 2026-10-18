@@ -29,6 +29,10 @@ export default function PollDetail() {
   // admins can see a delete option on polls they didn't create.
   const [isAdmin, setIsAdmin] = useState(false);
   const [extendTo, setExtendTo] = useState('');
+  // Set when the poll itself fails to load (wrong/expired link, deleted
+  // poll, server error) — without this, a failed fetch left the page
+  // stuck on "Loading..." forever with no feedback at all.
+  const [loadError, setLoadError] = useState('');
 
   // Decode the JWT payload (not verify — the server already does that) just
   // to compare userId against poll.createdBy, so we know whether to show
@@ -54,10 +58,19 @@ export default function PollDetail() {
   // via by-token first, which also tells us the real _id for later calls.
   useEffect(() => {
     if (tokenParam) {
-      api.get(`/polls/by-token/${tokenParam}`).then((res) => {
-        setId(res.data._id);
-        setPoll(res.data);
-      });
+      api
+        .get(`/polls/by-token/${tokenParam}`)
+        .then((res) => {
+          setId(res.data._id);
+          setPoll(res.data);
+        })
+        .catch((err) => {
+          setLoadError(
+            err.response?.status === 404
+              ? 'This link is invalid or the poll has been removed.'
+              : 'Could not load this poll. Please try again.'
+          );
+        });
     }
   }, [tokenParam]);
 
@@ -76,13 +89,27 @@ export default function PollDetail() {
 
   useEffect(() => {
     if (!id) return;
-    api.get(`/polls/${id}`, authHeaders()).then((res) => {
-      setPoll(res.data);
-      // Keep shareToken in sync with what the server has (e.g. after the
-      // creator regenerates it), not just whatever came in via the URL.
-      if (res.data.shareToken) setShareToken(res.data.shareToken);
-    });
-    api.get(`/polls/${id}/my-vote`, authHeaders()).then((res) => setMyVote(res.data.option));
+    api
+      .get(`/polls/${id}`, authHeaders())
+      .then((res) => {
+        setPoll(res.data);
+        // Keep shareToken in sync with what the server has (e.g. after the
+        // creator regenerates it), not just whatever came in via the URL.
+        if (res.data.shareToken) setShareToken(res.data.shareToken);
+      })
+      .catch((err) => {
+        setLoadError(
+          err.response?.status === 404
+            ? 'This poll could not be found — it may have been deleted, or the link is invalid.'
+            : err.response?.status === 401
+              ? 'You must be logged in to view this poll.'
+              : 'Could not load this poll. Please try again.'
+        );
+      });
+    api
+      .get(`/polls/${id}/my-vote`, authHeaders())
+      .then((res) => setMyVote(res.data.option))
+      .catch(() => {}); // not fatal — the poll itself still loads without this
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
@@ -129,6 +156,7 @@ export default function PollDetail() {
     }
   }
 
+  if (loadError) return <p className="error">{loadError}</p>;
   if (!poll) return <p>Loading...</p>;
 
   const isCreator = poll.createdBy === currentUserId();
