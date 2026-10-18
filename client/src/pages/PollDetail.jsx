@@ -189,7 +189,10 @@ export default function PollDetail() {
   }
 
   function loadVoters() {
-    api.get(`/polls/${id}/voters`, authHeaders()).then((res) => setVoters(res.data));
+    api
+      .get(`/polls/${id}/voters`, authHeaders())
+      .then((res) => setVoters(res.data))
+      .catch((err) => setMessage(err.response?.data?.error || 'Could not load voters.'));
   }
 
   function copyLink() {
@@ -220,20 +223,29 @@ export default function PollDetail() {
   }
 
   function regenerateLink() {
-    api.post(`/polls/${id}/regenerate-link`).then((res) => {
-      setShareToken(res.data.shareToken);
-      setMessage('Link regenerated — the old link no longer works.');
-    });
+    api
+      .post(`/polls/${id}/regenerate-link`)
+      .then((res) => {
+        setShareToken(res.data.shareToken);
+        setMessage('Link regenerated — the old link no longer works.');
+      })
+      .catch((err) => setMessage(err.response?.data?.error || 'Could not regenerate the link.'));
   }
 
   function closePoll() {
     if (!window.confirm('Close this poll early? Voters will no longer be able to vote.')) return;
-    api.post(`/polls/${id}/close`, {}, authHeaders()).then((res) => setPoll(res.data));
+    api
+      .post(`/polls/${id}/close`, {}, authHeaders())
+      .then((res) => setPoll(res.data))
+      .catch((err) => setMessage(err.response?.data?.error || 'Could not close the poll.'));
   }
 
   function deletePoll() {
     if (!window.confirm('Delete this poll permanently? This also deletes all its votes.')) return;
-    api.delete(`/polls/${id}`, authHeaders()).then(() => navigate('/polls'));
+    api
+      .delete(`/polls/${id}`, authHeaders())
+      .then(() => navigate('/polls'))
+      .catch((err) => setMessage(err.response?.data?.error || 'Could not delete the poll.'));
   }
 
   function extendDeadline(e) {

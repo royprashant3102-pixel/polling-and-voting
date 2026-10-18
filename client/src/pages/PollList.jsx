@@ -7,9 +7,16 @@ import api from '../api';
 // at a glance which polls they can still act on.
 export default function PollList() {
   const [polls, setPolls] = useState([]);
+  // Distinguishes "the fetch failed" from "there are genuinely no polls" —
+  // without this, a failed request just silently showed "No open polls
+  // right now," indistinguishable from an app with zero polls in it.
+  const [loadError, setLoadError] = useState('');
 
   useEffect(() => {
-    api.get('/polls').then((res) => setPolls(res.data));
+    api
+      .get('/polls')
+      .then((res) => setPolls(res.data))
+      .catch(() => setLoadError('Could not load polls. Please try again.'));
   }, []);
 
   // Mirrors the server's isPollClosed(poll): closed early OR past expiry.
@@ -38,6 +45,8 @@ export default function PollList() {
 
   return (
     <div>
+      {loadError && <p className="error">{loadError}</p>}
+
       <div className="card">
         <h2>Open polls</h2>
         {openPolls.length === 0 && <p className="muted">No open polls right now.</p>}
