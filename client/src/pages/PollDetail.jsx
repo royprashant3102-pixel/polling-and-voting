@@ -226,6 +226,7 @@ export default function PollDetail() {
         )}
         {message && <p className="error">{message}</p>}
 
+        <h3>Results</h3>
         {resultsHidden ? (
           <p className="muted">Results will be visible after the poll closes.</p>
         ) : (
