@@ -251,39 +251,47 @@ export default function PollDetail() {
 
   return (
     <div className="poll-layout">
-      <div className="poll-main card">
-        <div className="poll-top-row">
-          <div>
-            <span className={`badge ${closed ? 'badge-closed' : 'badge-open'}`}>
-              {closed ? 'Closed' : 'Open'}
-            </span>
-            {!closed && <span className="badge badge-time">{timeLeftLabel()}</span>}
-            {poll.visibility === 'linkOnly' && <span className="badge badge-link">Link only</span>}
+      <div className="poll-main-col">
+        <div className="card">
+          <div className="poll-top-row">
+            <div>
+              <span className={`badge ${closed ? 'badge-closed' : 'badge-open'}`}>
+                {closed ? 'Closed' : 'Open'}
+              </span>
+              {!closed && <span className="badge badge-time">{timeLeftLabel()}</span>}
+              {poll.visibility === 'linkOnly' && <span className="badge badge-link">Link only</span>}
+            </div>
+            <button type="button" className="link" onClick={sharePoll}>Share</button>
           </div>
-          <button type="button" className="link" onClick={sharePoll}>Share</button>
+
+          <h1>{poll.question}</h1>
+
+          {closed && !resultsHidden && winners.length > 0 && (
+            <p className="winner-banner">
+              {winners.length === 1
+                ? `🏆 Winner: ${winners[0]} (${Math.round((results.results.find((r) => r.option === winners[0]).count / totalVotes) * 100)}%)`
+                : `🏆 Tie between: ${winners.join(', ')}`}
+            </p>
+          )}
+
+          {poll.showVoters && (
+            <p className="muted">The creator of this poll can see who voted.</p>
+          )}
+
+          {closed ? (
+            <p className="muted">Voting is closed for this poll.</p>
+          ) : (
+            myVote && <p className="muted">You can change your vote any time before the poll closes.</p>
+          )}
+          {message && <p className="error">{message}</p>}
         </div>
 
-        <h1>{poll.question}</h1>
-
-        {closed && !resultsHidden && winners.length > 0 && (
-          <p className="winner-banner">
-            {winners.length === 1
-              ? `🏆 Winner: ${winners[0]} (${Math.round((results.results.find((r) => r.option === winners[0]).count / totalVotes) * 100)}%)`
-              : `🏆 Tie between: ${winners.join(', ')}`}
-          </p>
-        )}
-
-        {poll.showVoters && (
-          <p className="muted">The creator of this poll can see who voted.</p>
-        )}
-
-        {/* Each option is a single clickable row that also shows the live
-            result bar behind it — clicking anywhere votes for it. Wrapped
-            in its own bordered sub-panel so it reads as a distinct
-            "Results" section within the poll card, not just more content
-            flowing after the question. */}
-        <div className="results-panel">
+        {/* Results as a fully separate card, not nested inside the poll
+            card — its own box, same as the creator/admin panels below it. */}
+        <div className="card">
           <h3>Results</h3>
+          {/* Each option is a single clickable row that also shows the live
+              result bar behind it — clicking anywhere votes for it. */}
           {resultsHidden ? (
             poll.options.map((opt) => (
               <button
@@ -323,21 +331,13 @@ export default function PollDetail() {
               );
             })
           )}
+          {resultsHidden && (
+            <p className="muted">Results will be visible after the poll closes.</p>
+          )}
+          {!resultsHidden && (
+            <p className="muted">{totalVotes} votes · refreshes every 3 seconds</p>
+          )}
         </div>
-
-        {closed ? (
-          <p className="muted">Voting is closed for this poll.</p>
-        ) : (
-          myVote && <p className="muted">You can change your vote any time before the poll closes.</p>
-        )}
-        {message && <p className="error">{message}</p>}
-        {resultsHidden && (
-          <p className="muted">Results will be visible after the poll closes.</p>
-        )}
-
-        {!resultsHidden && (
-          <p className="muted">{totalVotes} votes · refreshes every 3 seconds</p>
-        )}
       </div>
 
       {isCreator && (

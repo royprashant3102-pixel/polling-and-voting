@@ -184,20 +184,6 @@ input[type="checkbox"] {
   margin: 0.75rem 0;
 }
 
-/* A distinct sub-section inside the poll card, set off from the question
-   and badges above it with its own border and background — visually
-   reads as "the results" rather than more content flowing down the page. */
-.results-panel {
-  background: var(--bg);
-  border: var(--border);
-  border-radius: var(--radius-card);
-  padding: 1rem;
-  margin: 1rem 0;
-}
-.results-panel h3 {
-  margin-top: 0;
-}
-
 .poll-top-row {
   display: flex;
   justify-content: space-between;
@@ -239,7 +225,19 @@ input[type="checkbox"] {
   gap: 1.5rem;
   align-items: flex-start;
 }
-.poll-layout .poll-main { flex: 2; min-width: 0; }
+.poll-layout .poll-main-col {
+  flex: 2;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+/* .card already has its own margin-bottom for normal page flow; inside a
+   flex column that's using `gap` for spacing, that margin would double
+   up the gap between the poll card and the results card. */
+.poll-main-col .card {
+  margin-bottom: 0;
+}
 .poll-layout .creator-panel { flex: 1; min-width: 0; }
 
 /* ---------- Result bars ---------- */
