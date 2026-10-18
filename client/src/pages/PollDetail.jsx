@@ -206,8 +206,14 @@ export default function PollDetail() {
           <p className="muted">The creator of this poll can see who voted.</p>
         )}
 
-        <div>
-          {poll.options.map((opt) => (
+        {/* One combined list: each option is a single clickable row that
+            also shows the live result bar behind it — instead of two
+            separate lists (vote buttons, then results) repeating the same
+            option names, which read as a confusing duplicate. Clicking the
+            row votes for it; the bar/percentage update from the same data
+            the old separate results section used. */}
+        {resultsHidden ? (
+          poll.options.map((opt) => (
             <button
               key={opt}
               onClick={() => vote(opt)}
@@ -217,38 +223,43 @@ export default function PollDetail() {
               {opt}
               {opt === myVote && ' (current vote)'}
             </button>
-          ))}
-        </div>
-        {closed ? (
-          <p className="muted">Voting is closed for this poll.</p>
+          ))
         ) : (
-          myVote && <p className="muted">You can change your vote any time before the poll closes.</p>
-        )}
-        {message && <p className="error">{message}</p>}
-
-        <h3>Results</h3>
-        {resultsHidden ? (
-          <p className="muted">Results will be visible after the poll closes.</p>
-        ) : (
-          results?.results.map((r) => {
-            const pct = totalVotes > 0 ? Math.round((r.count / totalVotes) * 100) : 0;
-            const isMine = r.option === myVote;
+          poll.options.map((opt) => {
+            const r = results?.results.find((row) => row.option === opt);
+            const pct = totalVotes > 0 && r ? Math.round((r.count / totalVotes) * 100) : 0;
+            const isMine = opt === myVote;
             return (
-              <div key={r.option} className="bar-row">
+              <button
+                key={opt}
+                onClick={() => vote(opt)}
+                disabled={closed}
+                className="bar-row bar-row-btn"
+              >
                 <div
                   className={`bar-fill ${isMine ? 'own-vote' : ''}`}
                   style={{ width: `${pct}%` }}
                 />
                 <div className="bar-label">
                   <span>
-                    {r.option}
+                    {opt}
                     {isMine && <span className="your-vote-pill">your vote</span>}
                   </span>
                   <span>{pct}%</span>
                 </div>
-              </div>
+              </button>
             );
           })
+        )}
+
+        {closed ? (
+          <p className="muted">Voting is closed for this poll.</p>
+        ) : (
+          myVote && <p className="muted">You can change your vote any time before the poll closes.</p>
+        )}
+        {message && <p className="error">{message}</p>}
+        {resultsHidden && (
+          <p className="muted">Results will be visible after the poll closes.</p>
         )}
 
         {!resultsHidden && (

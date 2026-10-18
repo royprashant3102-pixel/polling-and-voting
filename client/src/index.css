@@ -229,6 +229,24 @@ input[type="checkbox"] {
   min-height: 44px;
 }
 
+/* .bar-row is now also used as a clickable <button> (combined vote +
+   results row) — reset the button defaults the global input/button rule
+   sets (full width is fine, but drop the extra margin/padding/min-height
+   that would double up with .bar-row's own, and make it look clickable). */
+.bar-row-btn {
+  display: block;
+  width: 100%;
+  margin: 0.6rem 0;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+}
+.bar-row-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
 .bar-fill {
   position: absolute;
   inset: 0;
