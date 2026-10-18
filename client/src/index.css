@@ -184,6 +184,20 @@ input[type="checkbox"] {
   margin: 0.75rem 0;
 }
 
+/* A distinct sub-section inside the poll card, set off from the question
+   and badges above it with its own border and background — visually
+   reads as "the results" rather than more content flowing down the page. */
+.results-panel {
+  background: var(--bg);
+  border: var(--border);
+  border-radius: var(--radius-card);
+  padding: 1rem;
+  margin: 1rem 0;
+}
+.results-panel h3 {
+  margin-top: 0;
+}
+
 .poll-top-row {
   display: flex;
   justify-content: space-between;

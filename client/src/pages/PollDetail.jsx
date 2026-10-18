@@ -277,51 +277,53 @@ export default function PollDetail() {
           <p className="muted">The creator of this poll can see who voted.</p>
         )}
 
-        {/* One combined list: each option is a single clickable row that
-            also shows the live result bar behind it — instead of two
-            separate lists (vote buttons, then results) repeating the same
-            option names, which read as a confusing duplicate. Clicking the
-            row votes for it; the bar/percentage update from the same data
-            the old separate results section used. */}
-        {resultsHidden ? (
-          poll.options.map((opt) => (
-            <button
-              key={opt}
-              onClick={() => vote(opt)}
-              className="option-btn"
-              disabled={closed}
-            >
-              {opt}
-              {opt === myVote && ' (current vote)'}
-            </button>
-          ))
-        ) : (
-          poll.options.map((opt) => {
-            const r = results?.results.find((row) => row.option === opt);
-            const pct = totalVotes > 0 && r ? Math.round((r.count / totalVotes) * 100) : 0;
-            const isMine = opt === myVote;
-            return (
+        {/* Each option is a single clickable row that also shows the live
+            result bar behind it — clicking anywhere votes for it. Wrapped
+            in its own bordered sub-panel so it reads as a distinct
+            "Results" section within the poll card, not just more content
+            flowing after the question. */}
+        <div className="results-panel">
+          <h3>Results</h3>
+          {resultsHidden ? (
+            poll.options.map((opt) => (
               <button
                 key={opt}
                 onClick={() => vote(opt)}
+                className="option-btn"
                 disabled={closed}
-                className="bar-row bar-row-btn"
               >
-                <div
-                  className={`bar-fill ${isMine ? 'own-vote' : ''}`}
-                  style={{ width: `${pct}%` }}
-                />
-                <div className="bar-label">
-                  <span>
-                    {opt}
-                    {isMine && <span className="your-vote-pill">your vote</span>}
-                  </span>
-                  <span>{pct}%</span>
-                </div>
+                {opt}
+                {opt === myVote && ' (current vote)'}
               </button>
-            );
-          })
-        )}
+            ))
+          ) : (
+            poll.options.map((opt) => {
+              const r = results?.results.find((row) => row.option === opt);
+              const pct = totalVotes > 0 && r ? Math.round((r.count / totalVotes) * 100) : 0;
+              const isMine = opt === myVote;
+              return (
+                <button
+                  key={opt}
+                  onClick={() => vote(opt)}
+                  disabled={closed}
+                  className="bar-row bar-row-btn"
+                >
+                  <div
+                    className={`bar-fill ${isMine ? 'own-vote' : ''}`}
+                    style={{ width: `${pct}%` }}
+                  />
+                  <div className="bar-label">
+                    <span>
+                      {opt}
+                      {isMine && <span className="your-vote-pill">your vote</span>}
+                    </span>
+                    <span>{pct}%</span>
+                  </div>
+                </button>
+              );
+            })
+          )}
+        </div>
 
         {closed ? (
           <p className="muted">Voting is closed for this poll.</p>
