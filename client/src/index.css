@@ -135,7 +135,16 @@ input[type="checkbox"] {
 }
 .option-row input {
   flex: 1;
+  /* Flex items default to min-width: auto, which stops the input from
+     shrinking and pushes the Remove button off the row (or squeezes it
+     to nothing) on a narrow screen — same class of bug as the voter-list
+     overflow fixed earlier. min-width: 0 lets it actually shrink. */
+  min-width: 0;
   margin: 0.5rem 0; /* match the vertical rhythm of a standalone input */
+}
+.option-row .link {
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .link {
